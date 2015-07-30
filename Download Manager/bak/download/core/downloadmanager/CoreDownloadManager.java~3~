@@ -1,0 +1,496 @@
+/*
+ * CoreDownloadManager.java - A part of the DoIt download accelerator.
+ * DoIt makes use of the RFC2616 HTTP protocol's 'Partial Content' header
+ * to speed up your downloads.
+ *
+ * Copyright (C) 2002 Malyadri Naidu
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ *
+ *
+ * CoreDownloadManager.java
+ *
+ * Created on December 27, 2001, 10:48 PM
+ */
+
+package download.core.downloadmanager;
+
+import java.net.URL;
+import java.io.File;
+import java.io.IOException;
+import java.util.List;
+import java.util.LinkedList;
+import java.util.Iterator;
+
+/**
+ *
+ * @author  Malyadri Naidu
+ * @version
+ */
+public class CoreDownloadManager implements java.io.Serializable
+{
+    //----- properties --------
+    /** 2 KB */
+    protected static final int READ_SIZE = 1024 * 2;
+    /** 50 KB */
+    protected static final int MIN_CHUNK_SIZE = 1024 * 50;
+    protected static final int MAX_SIMULTANEOUS_DWNLDS = 7;
+
+    private File downloadDirectory;
+    private String downloadID;
+    private File destinationFile;
+    /** Do not set downloadWorkers directly. Use the set method so that cache
+     *  is also updated.
+     */
+    private List downloadWorkers;
+    /** The same downloadWorkers in an Array. */
+    private transient CoreDownloadWorker[] downloadWorkersArray;
+    private int chunkSize;
+    private boolean resumeSupported;
+    private int contentEnd;
+    private List urls;
+    private int state;
+    private transient InputOutput io;
+    private transient int urlIndexForDownload;
+    private List completedWorkersList;
+    private List completedResumableWorkersList;
+
+    /** Creates new DownloadManager */
+    public CoreDownloadManager()
+    {
+        chunkSize = MIN_CHUNK_SIZE;
+        downloadWorkers = null;
+        downloadWorkersArray = new CoreDownloadWorker[0];
+        destinationFile = null;
+        downloadDirectory = null;
+        resumeSupported = false;
+        contentEnd = 0;
+        urls = null;
+        state = 0;
+        urlIndexForDownload = 0;
+    }//end constr
+
+    public void setChunkSize(int size)
+    {
+        chunkSize = size;
+        verifyChunkSize();
+    }//end method
+
+    public int getChunkSize()
+    {
+        verifyChunkSize();
+        return chunkSize;
+    }//end method
+
+    protected void verifyChunkSize()
+    {
+        int fractionOfContentLength = MIN_CHUNK_SIZE;
+        if( downloadWorkers != null && downloadWorkers.size() > 0 )
+        {
+            for(int k = downloadWorkers.size() -1; k>=0; k--)
+            {
+                CoreDownloadWorker aWorker = (CoreDownloadWorker) downloadWorkers.get(k);
+                if( aWorker.isCompleted() )
+                {
+                    fractionOfContentLength = aWorker.getContentLength() / MAX_SIMULTANEOUS_DWNLDS;
+                    break;
+                }//end inner if
+            }//end for
+        }//end if
+        chunkSize = Math.max(chunkSize, Math.max(MIN_CHUNK_SIZE, fractionOfContentLength) );
+    }//end method
+
+    public synchronized void setState(int stateNum)
+    {
+        state = stateNum;
+    }//end method
+
+    public synchronized int getState()
+    {
+        return state;
+    }//end method
+
+    protected void setDownloadWorkers(List dws)
+    {
+        downloadWorkers = dws;
+        //make cache dirty, so that it will update
+        downloadWorkersArray = new CoreDownloadWorker[0];
+    }//end method
+
+    public List getDownloadWorkers()
+    {
+        return downloadWorkers;
+    }//end method
+
+    /**
+     *  @returns Cached array form of the List of CoreDownloadWorkers.
+     */
+    public CoreDownloadWorker[] getDownloadWorkersArray()
+    {
+        if( downloadWorkers != null )
+        {
+            if( downloadWorkersArray == null || (downloadWorkers.size() != downloadWorkersArray.length) )
+            {
+                Object[] tmpArray = downloadWorkers.toArray();
+                downloadWorkersArray = new CoreDownloadWorker[tmpArray.length];
+                for(int j=0; j<downloadWorkersArray.length; j++)
+                {
+                    downloadWorkersArray[j] = (CoreDownloadWorker) tmpArray[j];
+                }//end if
+            }//end inner if
+        }//end if
+
+        return downloadWorkersArray;
+    }//end method
+
+    public void setDownloadDirectory(File d)
+    {
+        downloadDirectory = d;
+    }//end method
+
+    public File getDownloadDirectory()
+    {
+        return downloadDirectory;
+    }//end method
+
+    public void setDestinationFile(File f)
+    {
+        destinationFile = f;
+    }//end method
+
+    public File getDestinationFile()
+    {
+        return destinationFile;
+    }//end method
+
+    protected void setResumeSupported(boolean yesNo)
+    {
+        resumeSupported = yesNo;
+    }//end method
+
+    public boolean isResumeSupported()
+    {
+        return resumeSupported;
+    }//end method
+
+    protected void setContentEnd(int lastByte)
+    {
+        contentEnd = lastByte;
+    }//end method
+
+    public int getContentEnd()
+    {
+        return contentEnd;
+    }//end method
+
+    public void setURLs(List listOfURLS)
+    {
+        urls = listOfURLS;
+    }//end method
+
+    public List getURLs()
+    {
+        return urls;
+    }//end method
+
+    /**
+     *  This id will be used for the name of the sub directory in which all
+     *  the data will be stored.
+     */
+    public void setDownloadID(String id)
+    {
+        downloadID = id;
+    }//end method
+
+    public String getDownloadID()
+    {
+        return downloadID;
+    }//end method
+
+    protected void setInputOutput(InputOutput downloadIO)
+    {
+        io = downloadIO;
+    }//end method
+
+    public InputOutput getInputOutput()
+    {
+        return io;
+    }//end method
+
+    /**
+     *  Creates a new list of CoreDownloadWorkers and sets their URLs to the list
+     *  of CoreDownloadManager's URLs.
+     */
+    public void prepareWorkersForGettingDownloadInfo()
+    {
+        setDownloadWorkers( new LinkedList() );
+
+        Iterator iter = getURLs().iterator();
+        while(iter.hasNext())
+        {
+            CoreDownloadWorker tmpWorker = new CoreDownloadWorker();
+            tmpWorker.setURL( (URL) iter.next() );
+            downloadWorkers.add( tmpWorker );
+        }//end while
+    }//end method
+
+    /**
+     *  Expects the prepareWorkersForGettingDownloadInfo() to be invoked before this
+     *  method is invoked.
+     */
+    public void startGettingDownloadInfo()
+    {
+        Iterator iter = downloadWorkers.iterator();
+        while( iter.hasNext() )
+        {
+            ((CoreDownloadWorker) iter.next()).getDownloadInfo();
+        }//end while
+    }//end method
+
+    /**
+     *  Invoked after startGettingDownloadInfo().
+     *  @return The number of URLs that work.
+     */
+    public int analyzeAndFilterURLs()
+    {
+        if( downloadWorkers == null )
+            return 0;
+        if( downloadWorkers.size() == 0 )
+            return 0;
+
+        Object[] tmpArray = downloadWorkers.toArray();
+        completedResumableWorkersList = new LinkedList();
+        completedWorkersList = new LinkedList();
+
+        for(int i=0; i<tmpArray.length; i++)
+        {
+            CoreDownloadWorker worker = (CoreDownloadWorker) tmpArray[i];
+            if( worker.isCompleted() )
+            {
+                if( worker.isResumeSupported() )
+                {
+                    completedResumableWorkersList.add( worker );
+                }//end inner if
+                else
+                {
+                    completedWorkersList.add( worker );
+                }//end inner else
+            }//end if
+        }//end for
+
+        // None of the workers have completed yet.
+        if( completedWorkersList.size() == 0 && completedResumableWorkersList.size() == 0 )
+            return 0;
+
+         urls.clear();
+
+        // If NOT all are resumable, then remove URLs which don't.
+        // So, we'll be left with URLs which support resume.
+        if( completedResumableWorkersList.size() > 0 )
+        {
+            urls.addAll( getURLsFromListOfCoreDownloadWorkers(completedResumableWorkersList) );
+            setResumeSupported( true );
+            CoreDownloadWorker oldWorker = (CoreDownloadWorker) completedResumableWorkersList.get(0);
+            contentEnd = oldWorker.getContentLength() - 1;
+        }//end if
+        else
+        {
+            urls.addAll( getURLsFromListOfCoreDownloadWorkers(completedWorkersList) );
+            setResumeSupported( false );
+            CoreDownloadWorker oldWorker = (CoreDownloadWorker) completedWorkersList.get(0);
+            contentEnd = oldWorker.getContentLength() - 1;
+        }//end else
+
+        return urls.size();
+    }//end method
+
+    /**
+     *  @param workers List of CoreDownloadWorkers
+     *  @returns List of URLs being used by the workers.
+     */
+    protected List getURLsFromListOfCoreDownloadWorkers(List workers)
+    {
+        List listOfURLs = new LinkedList();
+        Iterator iter = workers.iterator();
+        while( iter.hasNext() )
+        {
+            CoreDownloadWorker aWorker = (CoreDownloadWorker) iter.next();
+            URL workersURL = aWorker.getURL();
+            if( workersURL != null )
+                listOfURLs.add( workersURL );
+        }//end while
+
+        return listOfURLs;
+    }//end method
+
+    /**
+     * Expects the analyzeAndFilterURLs() method to be invoked before this method
+     * is invoked. A worker from completedWorkersList() is chosen to get
+     * the Content Length if resume is not supported. If resume is supported,
+     * a worker from completedResumableWorkersList() is chosen.
+     */
+    public void prepareWorkersForFreshDownload()
+    {
+        verifyChunkSize();
+        setDownloadWorkers( new LinkedList() );
+        io = new InputOutput();
+        io.setAppendBytesToFile( resumeSupported );
+
+        // and allows partial content, then spawn more workers
+        // by splitting the file into parts.
+        if( resumeSupported )
+        {
+            int tmpEnd = 0;
+            int start = 0;
+            int end = 0;
+
+            while(true)
+            {
+                tmpEnd = ( start + chunkSize - 1 );
+                if( tmpEnd > contentEnd ||
+                (contentEnd - tmpEnd) <= (0.50 * chunkSize) )
+                    end = contentEnd;
+                else
+                    end = tmpEnd;
+
+                CoreDownloadWorker worker = new CoreDownloadWorker();
+                worker.setURL( getURLForDownload() );
+                worker.setRangeStart( start );
+                worker.setCurrentPos(start);
+                worker.setRangeEnd( end );
+
+                worker.setFileName( getPathAndFileNameForFragment(downloadWorkers.size() + 1) );
+                worker.setInputOutput( io );
+
+                downloadWorkers.add( worker );
+
+                if( end == contentEnd )
+                    break;
+                else
+                    start += chunkSize;
+            }//end while
+        }//end if
+        // get file as one large chunk.
+        else
+        {
+            CoreDownloadWorker worker = new CoreDownloadWorker();
+            worker.setURL( getURLForDownload() );
+            worker.setRangeStart( 0 );
+            worker.setCurrentPos( 0 );
+            worker.setRangeEnd( contentEnd );
+            worker.setFileName( getPathAndFileNameForFragment(downloadWorkers.size() + 1) );
+            worker.setInputOutput( io );
+
+            downloadWorkers.add( worker );
+        }//end else
+    }//end method
+
+    /**
+     *  prepareWorkersForFreshDownload() or loadDownloadInfo() must be invoked
+     *  before this method is invoked.
+     */
+    public void startDownload()
+    {
+        Iterator iter = downloadWorkers.iterator();
+        while( iter.hasNext() )
+        {
+            CoreDownloadWorker worker = (CoreDownloadWorker) iter.next();
+            synchronized(worker)
+            {
+                if( worker.isCompleted())
+                    continue;
+
+                if( ! worker.isRunning() )
+                {
+                    worker.startDownload();
+                }//end if
+            }//end sync
+        }//end while
+    }//end method
+
+    public void pauseResumeDownload(boolean yesNo)
+    {
+        Iterator iter = downloadWorkers.iterator();
+        while( iter.hasNext() )
+        {
+            CoreDownloadWorker worker = (CoreDownloadWorker) iter.next();
+            synchronized(worker)
+            {
+                if( worker.isCompleted() )
+                    continue;
+
+                if( worker.isRunning() )
+                    worker.setPaused(yesNo);
+            }//end sync
+        }//end while
+    }//end method
+
+    public void stop()
+    {
+        Iterator iter = downloadWorkers.iterator();
+        while( iter.hasNext() )
+        {
+            CoreDownloadWorker worker = (CoreDownloadWorker) iter.next();
+
+            synchronized(worker)
+            {
+                if( worker.isCompleted())
+                    continue;
+
+                if( worker.isRunning() )
+                    worker.stop();
+            }//end sync
+        }//end while
+    }//end method
+
+    /** Returns a URL from the List - load balanced */
+    protected URL getURLForDownload()
+    {
+        int size = 0;
+
+        if( urls != null )
+            size = urls.size();
+
+        if( size <= 0 )
+            return null;
+
+        urlIndexForDownload = (urlIndexForDownload + 1) % size;
+
+        return (URL) urls.get(urlIndexForDownload);
+    }//end method
+
+    protected String getPathAndFileNameForFragment(int fragmentNum)
+    {
+        File f = new File( downloadDirectory,  downloadID + "." + fragmentNum );
+
+        return f.toString();
+    }//end method
+
+    private void writeObject(java.io.ObjectOutputStream out)
+     throws IOException
+    {
+        synchronized(this)
+        {
+            out.defaultWriteObject();
+        }//end sync
+    }//end method
+
+    private void readObject(java.io.ObjectInputStream in)
+     throws IOException, ClassNotFoundException
+    {
+        in.defaultReadObject();
+    }//end method
+
+}//end class

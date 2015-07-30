@@ -1,0 +1,142 @@
+/*
+ * InputOutput.java - A part of the SpeedDemon download accelerator.
+ * SpeedDemon makes use of the RFC2616 HTTP protocol's 'Partial Content' header
+ * to speed up your downloads.
+ *
+ * Copyright (C) 2002 Ashwin Jayaprakash
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ *
+ *
+ * InputOutput.java
+ *
+ * Created on January 1, 2002, 11:09 AM
+ */
+
+package sd.core.downloadmanager;
+
+import java.util.HashMap;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.ObjectOutputStream;
+import java.io.FileInputStream;
+import java.io.ObjectInputStream;
+
+/**
+ *
+ * @author  Ashwin Jayaprakash
+ * @version
+ */
+public class InputOutput implements java.io.Serializable
+{
+    private transient HashMap fileNameAndOpStream;
+    private boolean appendBytesToFile;
+    
+    /** Creates new InputOutput */
+    public InputOutput()
+    {
+        fileNameAndOpStream = new HashMap();
+        appendBytesToFile = false;
+    }//end constr
+    
+    public void setAppendBytesToFile(boolean yesNo)
+    {
+        appendBytesToFile = yesNo;
+    }//end method
+    
+    public boolean getAppendBytesToFile()
+    {
+        return appendBytesToFile;
+    }//end method
+    
+    /**
+     * @param fileName File name with full path.
+     * @param data <i>null</i> will be passed to close the stream.
+     * @param length The number of bytes to be saved from the start of the
+     *               the byte array.
+     *
+     *  To close the stream - <i>data should be null <b>and</b> length should be -1</i>
+     */
+    public void saveBytes(String fileName, byte[] data, int length)
+    throws Exception
+    {
+        if( fileNameAndOpStream == null )
+            fileNameAndOpStream = new HashMap();
+        
+        FileOutputStream fos;
+        Object tmp = fileNameAndOpStream.get( fileName );
+        if( tmp == null )
+        {
+            fos = new FileOutputStream(fileName, appendBytesToFile);
+            fileNameAndOpStream.put(fileName, fos);
+        }//end if
+        else
+            fos = (FileOutputStream) tmp;
+        
+        if( data == null && length == -1 && fos != null )
+        {
+            fos.flush();
+            fos.close();
+            fileNameAndOpStream.remove(fileName);
+            return;
+        }//end if
+        
+        fos.write(data, 0, length);
+    }//end method
+    
+    public static void saveDownloadInfo(CoreDownloadManager mgr)
+    {
+        try
+        {
+            File opFile = new File( mgr.getDownloadDirectory(), 
+            sd.gui.downloadmanager.DownloadManagerGUIConstants.DOWNLOAD_INFO_FILE_NAME );
+            FileOutputStream fostream = new FileOutputStream(opFile);
+            ObjectOutputStream oostream = new ObjectOutputStream(fostream);
+            
+            oostream.writeObject(mgr);
+            oostream.flush();
+            oostream.close();
+        }//end try
+        catch(Exception e)
+        {
+            //???
+            e.printStackTrace();
+        }//end catch
+    }//end method
+    
+    public static CoreDownloadManager loadDownloadInfo(File serFileDirectory) throws Exception
+    {
+        CoreDownloadManager mgr = null;
+        try
+        {
+            File ipFile = new File( serFileDirectory, 
+            sd.gui.downloadmanager.DownloadManagerGUIConstants.DOWNLOAD_INFO_FILE_NAME );
+            FileInputStream fistream = new FileInputStream(ipFile);
+            ObjectInputStream oistream = new ObjectInputStream(fistream);
+            
+            mgr = (CoreDownloadManager) oistream.readObject();
+            oistream.close();
+        }//end try
+        catch(Exception e)
+        {
+            mgr = null;
+            //???
+            e.printStackTrace();
+        }//end catch
+        
+        return mgr;
+    }//end method
+    
+}//end class

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<library>
+  <!--JBuilder Library Definition File-->
+  <fullname>HTTP Download Manager</fullname>
+  <class>
+    <path>classes/SpeedDemon</path>
+    <path>classes/ProtocolWrappers</path>
+    <path>[distribute/pw/HTTP_ProtocolWrapper.jar]</path>
+    <path>[distribute/ext/HTTPClient.3-03.jar]</path>
+    <path>src</path>
+  </class>
+</library>

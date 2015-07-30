@@ -1,0 +1,73 @@
+/*
+ * FileRecombiner.java - A part of the SpeedDemon download accelerator.
+ * SpeedDemon makes use of the RFC2616 HTTP protocol's 'Partial Content' header
+ * to speed up your downloads.
+ *
+ * Copyright (C) 2002 Malyadri Naidu
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ *
+ *
+ * FileRecombiner.java
+ *
+ * Created on December 30, 2001, 10:29 PM
+ */
+
+package download.util;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+
+/**
+ *
+ * @author  Malyadri Naidu
+ * @version
+ */
+public class FileRecombiner
+{
+
+    /** Creates new FileRecombiner.
+     *  Recombines files 'new File(inputDirectory, filePrefix + "." + i )'
+     *  where i = 1 to numOfFragments. Recombined file is outputFile.
+     */
+    public FileRecombiner(File inputDirectory, String filePrefix,
+                          int numOfFragments, File outputFile)
+                          throws Exception
+    {
+        FileOutputStream fos = new FileOutputStream( outputFile );
+        File inputFile;
+        FileInputStream fis;
+
+        byte[] data = new byte[ 500 ];
+        int readCount = 0;
+
+        for(int i=1; i<=numOfFragments; i++)
+        {
+            inputFile = new File(inputDirectory, filePrefix + "." + i );
+            fis = new FileInputStream( inputFile );
+
+            while( (readCount = fis.read(data)) > 0 )
+                fos.write(data, 0, readCount);
+
+            fis.close();
+        }//end for
+
+        fos.close();
+
+    }//end constr
+
+}//end class

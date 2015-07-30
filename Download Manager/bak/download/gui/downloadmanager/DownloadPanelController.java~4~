@@ -1,0 +1,947 @@
+/*
+ * DownloadPanelController.java
+ */
+
+package download.gui.downloadmanager;
+
+import download.GlobalConstants;
+import download.core.downloadmanager.CoreDownloadManager;
+import download.core.downloadmanager.CoreDownloadWorker;
+import download.core.downloadmanager.ProtocolWrapperFactory;
+import download.util.MD5;
+import download.util.FileRecombiner;
+import download.core.downloadmanager.InputOutput;
+
+import java.net.URL;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Observer;
+import java.util.Observable;
+import java.util.StringTokenizer;
+import java.io.File;
+import java.awt.CardLayout;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import javax.swing.SwingUtilities;
+import javax.swing.JComponent;
+import javax.swing.JOptionPane;
+
+/**
+ *
+ * @author  Malyadri Naidu
+ * @version
+ */
+public class DownloadPanelController implements Observer
+{
+    protected static final int GUI_UPDATE_FREQ = 300; //milliseconds
+    protected static final String WAIT_FOR_INFO_MSG = "Please wait until we collect info about atleast one URL.";
+    protected static final String STOP_DOWNLOAD_MSG = "Sure you want to stop the download?";
+    protected static final String RE_ENTER_URLS_MSG = "The URL(s) " +
+    "is(are) invalid. \nPlease enter the correct URL(s) again.";
+    protected static final String ENTER_MIRROR_MSG = "Enter mirror site links if any.";
+    protected static final String CLICK_TO_VERIFY_MSG = "Click continue to verify links and download information.";
+    protected static final String SPECIFY_DST_CHUNK_SIZE_MSG = "Specify destination file and download chunk size.";
+    protected static final String CLICK_CONTINUE_TO_START_MSG = "Click continue to start downloading.";
+    protected static final String STOPPING_MSG = "Stopping...";
+
+    protected static final int INIT_STATE = 0;
+    protected static final int ADD_URLS_STATE = 1;
+    protected static final int GET_DWNLD_INFO_STATE = 2;
+    protected static final int SET_DWNLD_PROPS_STATE = 3;
+    protected static final int DWNLD_STATE = 4;
+    protected static final int END_STATE = 5;
+
+    protected static final int ENTER_SUB_STATE = 1;
+    protected static final int EVT_PROCESS_SUB_STATE = 2;
+    protected static final int EXIT_SUB_STATE = 3;
+
+    private DownloadPanel downloadPanel;
+    private URL url;
+    private CoreDownloadManager manager;
+    private DownloadStatusPanelController downloadStatusPanelController;
+
+    private boolean prepareWorkersForFreshDownload;
+    private int currentState;
+    private int currentSubState;
+    private final DownloadPanelController downloadPanelController;
+
+    private StateMaintainerThread stateMaintainerThread;
+    private SwingUtilitiesInvokerRunnableTarget swingUtilitiesInvokerRunnableTarget;
+    private DownloadPanelActionListener downloadPanelActionListener;
+    private JComponentEnabler jComponentEnabler;
+    private LinkedList actionEventsQueue;
+    /** First element of eventsQueue Object which was just removed by eventHandler */
+    private Object dataSharedForGUIUpdate;
+    private Object dataSharedForExitSubState;
+    private boolean notificationReceived;
+
+
+    /** Creates new DownloadPanelController */
+    public DownloadPanelController(URL theURL)
+    {
+        url = theURL;
+        currentState = INIT_STATE;
+        currentSubState = ENTER_SUB_STATE;
+
+        downloadPanelController = this;
+        prepareWorkersForFreshDownload = false;
+
+        stateMaintainerThread = new StateMaintainerThread();
+        swingUtilitiesInvokerRunnableTarget = new SwingUtilitiesInvokerRunnableTarget();
+        downloadPanelActionListener = new DownloadPanelActionListener();
+        jComponentEnabler = new JComponentEnabler();
+        actionEventsQueue = new LinkedList();
+
+        dataSharedForGUIUpdate = null;
+        notificationReceived = false;
+        dataSharedForExitSubState = null;
+
+        downloadPanel = new DownloadPanel();
+        downloadPanel.pauseResumeContinueButton.addActionListener(downloadPanelActionListener);
+        downloadPanel.stopButton.addActionListener(downloadPanelActionListener);
+
+        stateMaintainerThread.setDaemon(true);
+        stateMaintainerThread.start();
+    }//end constr
+
+    public DownloadPanel getDownloadPanel()
+    {
+        return downloadPanel;
+    }//end method
+
+    public CoreDownloadManager getCoreDownloadManager()
+    {
+        return manager;
+    }//end method
+
+    /**
+     * All pre & post processing of UI is done. Actual UI updation is done in a Thread safe
+     * manner by using SwingUtilities.invoke*(...), where the Runnable target is an inner
+     * class.
+     */
+    protected void stateMaintainer()
+    {
+        try
+        {
+            while( currentState != END_STATE )
+            {
+                switch(currentState)
+                {
+                    case INIT_STATE:
+                        initState();
+                        break;
+
+                    case ADD_URLS_STATE:
+                        addURLsState();
+                        break;
+
+                    case GET_DWNLD_INFO_STATE:
+                        getDwnldInfoState();
+                        break;
+
+                    case SET_DWNLD_PROPS_STATE:
+                        setDwnldPropsState();
+                        break;
+
+                    case DWNLD_STATE:
+                        dwnldState();
+                        break;
+
+                    case END_STATE:
+                    default:
+                        break;
+                }//end switch
+
+                //---- wait()/sleep() here until notified --------------
+                try
+                {
+                    if(currentSubState == EVT_PROCESS_SUB_STATE)
+                    {
+                        boolean localVarNotificationReceived = false;
+                        synchronized(actionEventsQueue)
+                        {
+                            while( actionEventsQueue.size() == 0 &&
+                            !(notificationReceived == true && dataSharedForExitSubState != null) )
+                            {
+                                actionEventsQueue.wait(GUI_UPDATE_FREQ);
+                            }//end innermost while
+
+                            localVarNotificationReceived = notificationReceived;
+                            //unset
+                            notificationReceived = false;
+                        }//end sync
+
+                        if( localVarNotificationReceived == true && dataSharedForExitSubState != null )
+                        {
+                            currentSubState = EXIT_SUB_STATE;
+                        }//end inner if
+                    }//end if
+                }//end inner try
+                catch(InterruptedException ie)
+                {
+                    //???
+                    ie.printStackTrace();
+                }//end inner catch
+                //---- end wait()/sleep() here until notified --------------
+
+            }//end while
+        }//end try
+        catch(Exception e)
+        {
+            //???
+            //handle
+            e.printStackTrace();
+        }//end catch
+    }//end method
+
+    protected void initState() throws Exception
+    {
+        MD5 md5 = new MD5();
+        byte out[] = new byte[16];
+        md5.update( url.toExternalForm().getBytes() );
+        md5.md5final(out);
+
+        String dwnldID = md5.dumpBytes(out);
+        File dwnldDir = new File(GlobalConstants.MAIN_DOWNLOAD_DIRECTORY, dwnldID);
+        boolean freshDownload = true;
+
+        if( ! dwnldDir.exists() )
+        {
+            dwnldDir.mkdir();
+            manager = new CoreDownloadManager();
+            manager.setDownloadID( dwnldID );
+            manager.setDownloadDirectory(dwnldDir);
+        }//end if
+        else
+        {
+            freshDownload = false;
+            manager = InputOutput.loadDownloadInfo(dwnldDir);
+            if( manager == null )
+            {
+                manager = new CoreDownloadManager();
+                manager.setDownloadID( dwnldID );
+                manager.setDownloadDirectory(dwnldDir);
+                freshDownload = true;
+            }//end inner if
+        }//end else
+
+        prepareWorkersForFreshDownload = true;
+        currentSubState = ENTER_SUB_STATE;
+        if( freshDownload )
+        {
+            currentState = ADD_URLS_STATE;
+        }//end if
+        else
+        {
+            currentState = manager.getState();
+            // only if the workers have already been prepared, then don't do it again.
+            if( currentState == DWNLD_STATE )
+            {
+                prepareWorkersForFreshDownload = false;
+            }//end inner if
+        }//end else
+    }//end method
+
+    protected void addURLsState()
+    {
+        String actionCommand;
+        switch(currentSubState)
+        {
+            case ENTER_SUB_STATE:
+                manager.setState(currentState);
+                downloadPanel.addURLsPanel.accept(null);
+                try
+                {
+                    SwingUtilities.invokeAndWait( swingUtilitiesInvokerRunnableTarget );
+                }//end try
+                catch(Exception e)
+                { e.printStackTrace(); }//end catch
+
+                currentSubState = EVT_PROCESS_SUB_STATE;
+                break;
+
+            case EVT_PROCESS_SUB_STATE:
+                ActionEvent ae = null;
+                synchronized(actionEventsQueue)
+                {
+                    ae = (ActionEvent) actionEventsQueue.removeFirst();
+                }//end sync
+                dataSharedForGUIUpdate = ae;
+
+                actionCommand = ae.getActionCommand();
+                if( actionCommand.equals(DownloadManagerGUIConstants.CONTINUE) )
+                {
+                    //parse urls
+                    String allURLsText = downloadPanel.addURLsPanel.urlsTextPane.getText();
+                    StringTokenizer tokenizer = new StringTokenizer(allURLsText, "\r\n");
+                    LinkedList parsedURLs = new LinkedList();
+                    while( tokenizer.hasMoreTokens() )
+                    {
+                        try
+                        {
+                            URL tmpURL = new URL( tokenizer.nextToken() );
+                            if( ! parsedURLs.contains(tmpURL) &&
+                            ProtocolWrapperFactory.isProtocolSupported(tmpURL) )
+                            {
+                                parsedURLs.add( tmpURL );
+                            }//end inner if
+                        }//end try
+                        catch(java.net.MalformedURLException me)
+                        {  }//end catch
+                    }//end while
+
+                    if( parsedURLs.size() == 0 )
+                    {
+                        JOptionPane.showMessageDialog(download.gui.MainFrame.getMainFrame(),
+                        RE_ENTER_URLS_MSG, GlobalConstants.SPEED_DEMON_TITLE,
+                        JOptionPane.ERROR_MESSAGE);
+                    }//end if
+                    else
+                    {
+                        manager.setURLs(parsedURLs);
+
+                        try
+                        {
+                            SwingUtilities.invokeAndWait( swingUtilitiesInvokerRunnableTarget );
+                        }//end try
+                        catch(Exception e)
+                        { e.printStackTrace(); }//end catch
+
+                        currentState = GET_DWNLD_INFO_STATE;
+                        currentSubState = ENTER_SUB_STATE;
+                    }//end else
+                }//end if CONTINUE
+                else if( actionCommand.equals(DownloadManagerGUIConstants.STOP) )
+                {
+                    int status = JOptionPane.showConfirmDialog(download.gui.MainFrame.getMainFrame(),
+                    STOP_DOWNLOAD_MSG, GlobalConstants.SPEED_DEMON_TITLE,
+                    JOptionPane.YES_NO_OPTION);
+
+                    if( status == JOptionPane.YES_OPTION )
+                    {
+                        currentSubState = EXIT_SUB_STATE;
+                        dataSharedForExitSubState = ae;
+                    }//end inner if
+                }//end else if STOP
+
+                try
+                {
+                    SwingUtilities.invokeAndWait( jComponentEnabler );
+                }//end try
+                catch(Exception e)
+                { e.printStackTrace(); }//end catch
+                break;
+
+            case EXIT_SUB_STATE:
+                if( dataSharedForExitSubState != null && dataSharedForExitSubState instanceof ActionEvent )
+                {
+                    actionCommand = ((ActionEvent) dataSharedForExitSubState).getActionCommand();
+                    if( actionCommand.equals(DownloadManagerGUIConstants.STOP) )
+                    {
+                        handleStop();
+                    }//end if
+                }//end outer if
+                synchronized(actionEventsQueue)
+                {
+                    dataSharedForExitSubState = null;
+                    notificationReceived = false;
+                }//end sync
+                break;
+        }//end switch
+    }//end method
+
+    protected void getDwnldInfoState()
+    {
+        switch(currentSubState)
+        {
+            case ENTER_SUB_STATE:
+                manager.setState(currentState);
+                downloadStatusPanelController = new DownloadStatusPanelController(manager, false, prepareWorkersForFreshDownload);
+                downloadStatusPanelController.addObserver(this);
+
+                try
+                {
+                    SwingUtilities.invokeAndWait( swingUtilitiesInvokerRunnableTarget );
+                }//end try
+                catch(Exception e)
+                { e.printStackTrace(); }//end catch
+
+                currentSubState = EVT_PROCESS_SUB_STATE;
+                break;
+
+            case EVT_PROCESS_SUB_STATE:
+                ActionEvent ae = null;
+                synchronized(actionEventsQueue)
+                {
+                    ae = (ActionEvent) actionEventsQueue.removeFirst();
+                }//end sync
+                dataSharedForGUIUpdate = ae;
+
+                if( ae.getActionCommand().equals( DownloadManagerGUIConstants.CONTINUE ) )
+                {
+                    downloadStatusPanelController.handleActionEvent( ae );
+                }//end if continue
+                else if( ae.getActionCommand().equals( DownloadManagerGUIConstants.SKIP ) )
+                {
+                    int numOfURLsWorking = manager.analyzeAndFilterURLs();
+                    if( numOfURLsWorking > 0 )
+                    {
+                        if( ! downloadStatusPanelController.handleActionEvent( ae ) )
+                        {
+                            try
+                            {
+                                SwingUtilities.invokeAndWait( jComponentEnabler );
+                            }//end try
+                            catch(Exception e)
+                            { e.printStackTrace(); }//end catch
+                        }//end innermost if
+                    }//end inner if
+                    else
+                    {
+                        JOptionPane.showMessageDialog(download.gui.MainFrame.getMainFrame(),
+                        WAIT_FOR_INFO_MSG, GlobalConstants.SPEED_DEMON_TITLE,
+                        JOptionPane.OK_OPTION);
+
+                        try
+                        {
+                            SwingUtilities.invokeAndWait( jComponentEnabler );
+                        }//end try
+                        catch(Exception e)
+                        { e.printStackTrace(); }//end catch
+                    }//end inner else
+                }//end else if skip
+                else if( ae.getActionCommand().equals( DownloadManagerGUIConstants.STOP ) )
+                {
+                    int status = JOptionPane.showConfirmDialog(download.gui.MainFrame.getMainFrame(),
+                    STOP_DOWNLOAD_MSG, GlobalConstants.SPEED_DEMON_TITLE,
+                    JOptionPane.YES_NO_OPTION);
+
+                    if( status == JOptionPane.YES_OPTION &&
+                    downloadStatusPanelController.handleActionEvent( ae ) )
+                    {
+                        /* no code */
+                    }//end if
+                    else
+                    {
+                        try
+                        {
+                            SwingUtilities.invokeAndWait( jComponentEnabler );
+                        }//end try
+                        catch(Exception e)
+                        { e.printStackTrace(); }//end catch
+                    }//end else
+                }//end else if stop
+                break;
+
+            case EXIT_SUB_STATE:
+                downloadStatusPanelController.deleteObserver(this);
+                downloadStatusPanelController = null;
+
+                if( dataSharedForExitSubState != null && dataSharedForExitSubState instanceof ActionEvent )
+                {
+                    String actionCommand = ((ActionEvent) dataSharedForExitSubState).getActionCommand();
+
+                    if( actionCommand.equals(DownloadManagerGUIConstants.STOP) )
+                    {
+                        handleStop();
+                    }//end if
+                }//end outer if
+                // does'nt matter if invoked analyzeAndFilterURLs() was previously
+                else if( manager.analyzeAndFilterURLs() > 0 )
+                {
+                    currentState = SET_DWNLD_PROPS_STATE;
+                    currentSubState = ENTER_SUB_STATE;
+                }//end else
+                synchronized(actionEventsQueue)
+                {
+                    dataSharedForExitSubState = null;
+                    notificationReceived = false;
+                }//end sync
+                downloadStatusPanelController = null;
+                break;
+        }//end switch
+    }//end method
+
+    protected void setDwnldPropsState()
+    {
+        switch(currentSubState)
+        {
+            case ENTER_SUB_STATE:
+                manager.setState(currentState);
+                try
+                {
+                    SwingUtilities.invokeAndWait( swingUtilitiesInvokerRunnableTarget );
+                }//end try
+                catch(Exception e)
+                { e.printStackTrace(); }//end catch
+
+                currentSubState = EVT_PROCESS_SUB_STATE;
+                break;
+
+            case EVT_PROCESS_SUB_STATE:
+                ActionEvent ae = null;
+                synchronized(actionEventsQueue)
+                {
+                    ae = (ActionEvent) actionEventsQueue.removeFirst();
+                }//end sync
+                dataSharedForGUIUpdate = ae;
+
+                if( ae.getActionCommand().equals( DownloadManagerGUIConstants.CONTINUE ) )
+                {
+                    // check if all params have been filled correctly
+                    boolean allowContinue = true;
+
+                    String strChunkSize = downloadPanel.fullDownloadDetailsPanel.chunkSizeTextField.getText();
+                    if( strChunkSize.equals(DownloadManagerGUIConstants.EMPTY_TEXT) )
+                        allowContinue = false;
+
+                    if( downloadPanel.fullDownloadDetailsPanel.destinationFile == null )
+                        allowContinue = false;
+
+                    if( allowContinue == true )
+                    {
+                        try
+                        { manager.setChunkSize( Integer.parseInt(strChunkSize) ); }//end try
+                        catch(Exception e)
+                        { }//end catch
+                        manager.setDestinationFile( downloadPanel.fullDownloadDetailsPanel.destinationFile );
+
+                        currentSubState = EXIT_SUB_STATE;
+                    }//end if
+
+                    try
+                    {
+                        SwingUtilities.invokeAndWait( jComponentEnabler );
+                    }//end try
+                    catch(Exception e)
+                    { e.printStackTrace(); }//end catch
+                }//end if continue
+                else if( ae.getActionCommand().equals( DownloadManagerGUIConstants.STOP ) )
+                {
+                    int status = JOptionPane.showConfirmDialog(download.gui.MainFrame.getMainFrame(),
+                    STOP_DOWNLOAD_MSG, GlobalConstants.SPEED_DEMON_TITLE, JOptionPane.YES_NO_OPTION);
+
+                    if( status == JOptionPane.YES_OPTION )
+                    {
+                        dataSharedForExitSubState = ae;
+                        currentSubState = EXIT_SUB_STATE;
+                    }//end if
+                    try
+                    {
+                        SwingUtilities.invokeAndWait( jComponentEnabler );
+                    }//end try
+                    catch(Exception e)
+                    { e.printStackTrace(); }//end catch
+                }//end else if stop
+                break;
+
+            case EXIT_SUB_STATE:
+                if( dataSharedForExitSubState != null && dataSharedForExitSubState instanceof ActionEvent)
+                {
+                    String actionCommand = ((ActionEvent) dataSharedForExitSubState).getActionCommand();
+
+                    if( actionCommand.equals(DownloadManagerGUIConstants.STOP) )
+                    {
+                        handleStop();
+                    }//end if
+                }//end outer if
+                else
+                {
+                    currentState = DWNLD_STATE;
+                    currentSubState = ENTER_SUB_STATE;
+                }//end else
+                synchronized(actionEventsQueue)
+                {
+                    dataSharedForExitSubState = null;
+                    notificationReceived = false;
+                }//end sync
+                break;
+        }//end switch
+    }//end method
+
+    protected void dwnldState()
+    {
+        switch(currentSubState)
+        {
+            case ENTER_SUB_STATE:
+                manager.setState(currentState);
+                downloadStatusPanelController = new DownloadStatusPanelController(manager, true, prepareWorkersForFreshDownload);
+                downloadStatusPanelController.addObserver(this);
+
+                try
+                {
+                    SwingUtilities.invokeAndWait( swingUtilitiesInvokerRunnableTarget );
+                }//end try
+                catch(Exception e)
+                { e.printStackTrace(); }//end catch
+
+                currentSubState = EVT_PROCESS_SUB_STATE;
+                break;
+
+            case EVT_PROCESS_SUB_STATE:
+                ActionEvent ae = null;
+                synchronized(actionEventsQueue)
+                {
+                    ae = (ActionEvent) actionEventsQueue.removeFirst();
+                }//end sync
+                dataSharedForGUIUpdate = ae;
+
+                if( ae.getActionCommand().equals( DownloadManagerGUIConstants.CONTINUE ) )
+                {
+                    downloadStatusPanelController.handleActionEvent( ae );
+                }//end if continue
+                if( ae.getActionCommand().equals( DownloadManagerGUIConstants.PAUSE ) )
+                {
+                    downloadStatusPanelController.handleActionEvent( ae );
+                }//end else if pause
+                else if( ae.getActionCommand().equals( DownloadManagerGUIConstants.RESUME ) )
+                {
+                    downloadStatusPanelController.handleActionEvent( ae );
+                }//end else if resume
+                else if( ae.getActionCommand().equals( DownloadManagerGUIConstants.STOP ) )
+                {
+                    int status = JOptionPane.showConfirmDialog(download.gui.MainFrame.getMainFrame(),
+                    STOP_DOWNLOAD_MSG, GlobalConstants.SPEED_DEMON_TITLE,
+                    JOptionPane.YES_NO_OPTION);
+
+                    if( status == JOptionPane.YES_OPTION &&
+                    downloadStatusPanelController.handleActionEvent( ae ) )
+                    {
+                        /* No code */
+                    }//end if
+                    else
+                    {
+                        try
+                        {
+                            SwingUtilities.invokeAndWait( jComponentEnabler );
+                        }//end try
+                        catch(Exception e)
+                        { e.printStackTrace(); }//end catch
+                    }//end else
+                }//end else if stop
+
+                try
+                {
+                    SwingUtilities.invokeAndWait( swingUtilitiesInvokerRunnableTarget );
+                }//end try
+                catch(Exception e)
+                { e.printStackTrace(); }//end catch
+                break;
+
+            case EXIT_SUB_STATE:
+                downloadStatusPanelController.deleteObserver(this);
+                downloadStatusPanelController = null;
+
+                if( dataSharedForExitSubState != null && dataSharedForExitSubState instanceof ActionEvent )
+                {
+                    String actionCommand = ((ActionEvent) dataSharedForExitSubState).getActionCommand();
+                    if( actionCommand.equals(DownloadManagerGUIConstants.STOP) )
+                    {
+                        handleStop();
+                    }//end if
+                }//end outer if
+                else
+                {
+                    handleStop();
+                }//end outer else
+                break;
+        }//end switch
+    }//end method
+
+    /**
+     * Warning!! This thread must be invoked only by AWT-EventDispather thread.
+     */
+    protected void guiUpdater()
+    {
+        if( ! SwingUtilities.isEventDispatchThread() )
+            return;
+
+        switch(currentState)
+        {
+            case INIT_STATE:
+                break;
+
+            case ADD_URLS_STATE:
+                switch(currentSubState)
+                {
+                    case ENTER_SUB_STATE:
+                        downloadPanel.messageTextField.setText( ENTER_MIRROR_MSG );
+
+                        downloadPanel.addURLsPanel.urlsTextPane.setText(url.toExternalForm());
+                        downloadPanel.setVisible(true);
+
+                        CardLayout cl = (CardLayout) downloadPanel.middlePanel.getLayout();
+                        cl.show(downloadPanel.middlePanel, downloadPanel.ADD_URLS_CARD);
+                        break;
+
+                    case EVT_PROCESS_SUB_STATE:
+                        break;
+
+                    case EXIT_SUB_STATE:
+                        break;
+                }//end inner switch
+                break;
+
+            case GET_DWNLD_INFO_STATE:
+                switch(currentSubState)
+                {
+                    case ENTER_SUB_STATE:
+                        downloadPanel.messageTextField.setText( CLICK_TO_VERIFY_MSG );
+
+                        downloadPanel.pauseResumeContinueButton.setText(DownloadManagerGUIConstants.CONTINUE);
+                        downloadPanel.getDownloadInfoPanel.add(
+                        downloadStatusPanelController.getDownloadStatusPanel(), java.awt.BorderLayout.CENTER );
+
+                        CardLayout cl = (CardLayout) downloadPanel.middlePanel.getLayout();
+                        cl.show(downloadPanel.middlePanel, downloadPanel.GET_DOWNLOAD_INFO_CARD);
+                        break;
+
+                    case EVT_PROCESS_SUB_STATE:
+                        break;
+
+                    case EXIT_SUB_STATE:
+                        break;
+                }//end inner switch
+                break;
+
+            case SET_DWNLD_PROPS_STATE:
+                switch(currentSubState)
+                {
+                    case ENTER_SUB_STATE:
+                        downloadPanel.messageTextField.setText( SPECIFY_DST_CHUNK_SIZE_MSG );
+
+                        commonSetDwnldPropsEnterSubStateCode();
+
+                        downloadPanel.fullDownloadDetailsPanel.destinationFileButton.setEnabled(true);
+                        downloadPanel.fullDownloadDetailsPanel.chunkSizeTextField.setEditable(true);
+                        break;
+
+                    case EVT_PROCESS_SUB_STATE:
+                        break;
+
+                    case EXIT_SUB_STATE:
+                        break;
+                }//end inner switch
+                break;
+
+            case DWNLD_STATE:
+                switch(currentSubState)
+                {
+                    case ENTER_SUB_STATE:
+                        downloadPanel.messageTextField.setText( CLICK_CONTINUE_TO_START_MSG );
+
+                        commonSetDwnldPropsEnterSubStateCode();
+
+                        downloadPanel.fullDownloadDetailsPanel.destinationFileButton.setEnabled(false);
+                        downloadPanel.fullDownloadDetailsPanel.chunkSizeTextField.setText( manager.getChunkSize() + "" );
+                        downloadPanel.fullDownloadDetailsPanel.chunkSizeTextField.setEditable(false);
+                        javax.swing.JPanel panel = downloadStatusPanelController.getDownloadStatusPanel();
+                        downloadPanel.fullDownloadDetailsPanel.moreDetailsPanel.add( panel );
+                        downloadPanel.fullDownloadDetailsPanel.moreDetailsPanel.revalidate();
+                        downloadPanel.fullDownloadDetailsPanel.moreDetailsPanel.repaint();
+                        break;
+
+                    case EVT_PROCESS_SUB_STATE:
+                        downloadPanel.messageTextField.setText( DownloadManagerGUIConstants.EMPTY_TEXT );
+                        break;
+
+                    case EXIT_SUB_STATE:
+                        break;
+                }//end inner switch
+                break;
+
+            case END_STATE:
+            default:
+                break;
+        }//end outer switch
+    }//end method
+
+    protected void commonSetDwnldPropsEnterSubStateCode()
+    {
+        downloadPanel.pauseResumeContinueButton.setText(DownloadManagerGUIConstants.CONTINUE);
+        CardLayout cl = (CardLayout) downloadPanel.middlePanel.getLayout();
+        cl.show(downloadPanel.middlePanel, downloadPanel.FULL_DOWNLOAD_DETAILS_CARD);
+
+        //fill download properties
+        URL firstURL = (URL) manager.getURLs().get(0);
+        downloadPanel.fullDownloadDetailsPanel.sourceFileTextField.setText( firstURL.toExternalForm() );
+
+        if( manager.getDestinationFile() == null )
+        {
+            downloadPanel.fullDownloadDetailsPanel.destinationFileButton.setText(FullDownloadDetailsPanel.SAVE_AS);
+            downloadPanel.fullDownloadDetailsPanel.destinationFileButton.setToolTipText(FullDownloadDetailsPanel.SAVE_AS);
+            downloadPanel.fullDownloadDetailsPanel.destinationFile = null;
+        }//end if
+        else
+        {
+            String strFile = manager.getDestinationFile().toString();
+            downloadPanel.fullDownloadDetailsPanel.destinationFileButton.setText( strFile );
+            downloadPanel.fullDownloadDetailsPanel.destinationFileButton.setToolTipText( strFile );
+            downloadPanel.fullDownloadDetailsPanel.destinationFile = manager.getDestinationFile();
+        }//end else
+
+        String resumeSupported = manager.isResumeSupported() ? "Yes" : "No";
+        downloadPanel.fullDownloadDetailsPanel.resumeTextField.setText( resumeSupported );
+
+        int intChunkSize = manager.getChunkSize();
+        String strChunkSize = (intChunkSize <= 0) ? DownloadManagerGUIConstants.EMPTY_TEXT : (intChunkSize + "");
+        downloadPanel.fullDownloadDetailsPanel.chunkSizeTextField.setText( strChunkSize );
+
+        float floatFileSize = manager.getContentEnd() / 1024.0F;
+        int intFileSize = (int) floatFileSize;
+        float decimalPoints = ((int) ((floatFileSize - intFileSize) * 100)) / 100.0F;
+        floatFileSize = intFileSize + decimalPoints;
+        downloadPanel.fullDownloadDetailsPanel.fileSizeTextField.setText( floatFileSize + " KB" );
+    }//end method
+
+    /**
+     *  Will be invoked after stop has been invoked and after all the necessary
+     *  handling is done.
+     *  Also DownloadManager invokes this when it's destroy() method is invoked.
+     */
+    protected synchronized void handleStop()
+    {
+        switch(currentState)
+        {
+            case ADD_URLS_STATE:
+                break;
+
+            case SET_DWNLD_PROPS_STATE:
+                break;
+
+            case GET_DWNLD_INFO_STATE:
+            case DWNLD_STATE:
+                CoreDownloadWorker[] workers = manager.getDownloadWorkersArray();
+                int numOfCompleted = 0;
+                int numOfStopped = 0;
+                /* GUI stuff being done in a non AWT-Thread. Guess it's okay. */
+                downloadPanel.messageTextField.setText( STOPPING_MSG );
+                while( numOfStopped != workers.length )
+                {
+                    numOfStopped = 0;
+                    for(int i=0; i<workers.length; i++)
+                    {
+                        if( ! workers[i].isRunning() )
+                            numOfStopped++;
+                        else
+                            workers[i].stop();
+                    }//end for
+                }//end while
+
+                if( currentState == DWNLD_STATE )
+                {
+                    for(int i=0; i<workers.length; i++)
+                    {
+                        if( workers[i].isCompleted() )
+                            numOfCompleted++;
+                    }//end for
+                    if( numOfCompleted == workers.length )
+                    {
+                        try
+                        {
+                            new download.util.FileRecombiner(manager.getDownloadDirectory(), manager.getDownloadID(),
+                            workers.length, manager.getDestinationFile());
+                        }//end try
+                        catch(Exception e)
+                        {
+                            e.printStackTrace();
+                        }//end catch
+                    }//end if
+                }//end outer if
+                break;
+        }//end switch
+
+        InputOutput.saveDownloadInfo(manager);
+        DownloadManager.handleRemove(url.toExternalForm());
+        currentState = END_STATE;
+    }//end method
+
+    //----- interface methods --------------------------
+    /**
+     * This method is called whenever the observed object is changed. An
+     * application calls an <tt>Observable</tt> object's
+     * <code>notifyObservers</code> method to have all the object's
+     * observers notified of the change.
+     *
+     * @param   o     the observable object.
+     * @param   arg   an argument passed to the <code>notifyObservers</code>
+     *                method.
+     */
+    public void update(Observable observable, Object arg)
+    {
+        //if not the current Observable, then return.
+        if( downloadStatusPanelController != observable )
+            return;
+
+        synchronized( actionEventsQueue )
+        {
+            notificationReceived = true;
+            dataSharedForExitSubState = arg;
+            // because notification really works here if both
+            // dataSharedForExitSubState is non-null and
+            // notificationReceived is true.
+            if( dataSharedForExitSubState == null )
+                dataSharedForExitSubState = new Object();
+            actionEventsQueue.notifyAll();
+        }//end sync
+    }//end method
+    //----- end interface methods --------------------------
+
+    //------- inner class StateMaintainerThread --------------------
+    protected class StateMaintainerThread extends Thread
+    {
+        public void run()
+        {
+            downloadPanelController.stateMaintainer();
+        }//end run
+    }//end class StateMaintainerThread
+    //------- end inner class StateMaintainerThread --------------------
+
+    //------- inner class SwingUtilitiesInvokerRunnableTarget --------------------
+    protected class SwingUtilitiesInvokerRunnableTarget implements Runnable
+    {
+        public void run()
+        {
+            downloadPanelController.guiUpdater();
+            downloadPanel.repaint();
+        }//end run
+    }//end class SwingUtilitiesInvokerRunnableTarget
+    //------- end inner class SwingUtilitiesInvokerRunnableTarget --------------------
+
+    //------- inner class DownloadPanelActionListener --------------------
+    protected class DownloadPanelActionListener implements ActionListener
+    {
+        public void actionPerformed(ActionEvent ae)
+        {
+            if( ! stateMaintainerThread.isAlive() )
+                return;
+
+            Object tmpObject = ae.getSource();
+            ((JComponent) tmpObject).setEnabled(false);
+
+            synchronized(downloadPanelController.actionEventsQueue)
+            {
+                downloadPanelController.actionEventsQueue.addLast( ae );
+                downloadPanelController.actionEventsQueue.notifyAll();
+            }//end sync
+        }//end actionPerformed
+    }//end class DownloadPanelActionListener
+    //------- end inner class DownloadPanelActionListener --------------------
+
+    //------- inner class JComponentEnabler --------------------
+    protected class JComponentEnabler implements Runnable
+    {
+        /**
+         *  Warning!! To be invoked only by AWT-EventDispath thread.
+         */
+        public void run()
+        {
+            ActionEvent ae = (ActionEvent) DownloadPanelController.this.dataSharedForGUIUpdate;
+
+            JComponent jc = (JComponent) ae.getSource();
+            jc.setEnabled(true);
+        }//end run
+    }//end class JComponentEnabler
+    //------- end inner class JComponentEnabler --------------------
+
+}//end class

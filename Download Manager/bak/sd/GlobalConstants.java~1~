@@ -1,0 +1,52 @@
+/*
+ * GlobalConstants.java - A part of the SpeedDemon download accelerator.
+ * SpeedDemon makes use of the RFC2616 HTTP protocol's 'Partial Content' header
+ * to speed up your downloads.
+ *
+ * Copyright (C) 2002 Ashwin Jayaprakash
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ *
+ *
+ * GlobalConstants.java
+ *
+ * Created on March 1, 2002, 9:28 PM
+ */
+
+package sd;
+
+/**
+ *
+ * @author  Ashwin Jayaprakash
+ * @version
+ */
+public abstract class GlobalConstants
+{
+    public static final String SPEED_DEMON_TITLE = "Speed Demon v1.1";
+    public static final String ABOUT_MESSAGE = "Version : " + SPEED_DEMON_TITLE +
+                "\nLicense : GNU GPL (Open source)" +
+                "\nAuthor : Ashwin Jayaprakash" +
+                "\nE-Mail : ashwinjay@rediffmail.com" +
+                "\nWeb site : www.javaforu.com";
+
+    public static final String SPEED_DEMON_PROPERTIES_FILE_NAME = "SpeedDemon.properties";
+    
+    public static java.io.File MAIN_DOWNLOAD_DIRECTORY;
+    public static java.io.File PROTOCOL_WRAPPERS_DIRECTORY;
+    public static java.io.File SPEED_DEMON_HOME_DIRECTORY;
+    public static java.io.File EXTERNAL_LIBRARIES_DIRECTORY;
+    
+    public static int SPEED_DEMON_SERVER_PORT;
+}//end class

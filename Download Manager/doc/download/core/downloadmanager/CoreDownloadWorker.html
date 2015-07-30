@@ -1,0 +1,70 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML><!--JBuilder QuickDoc-->
+<HEAD>
+<TITLE>Class download.core.downloadmanager.CoreDownloadWorker</TITLE><META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=utf-8">
+</HEAD>
+<BODY>
+
+<H2>
+<FONT SIZE="-1">download.core.downloadmanager</FONT>
+<BR>Class CoreDownloadWorker</H2>
+<DL>
+<DT>public class <B>CoreDownloadWorker</B><DT>implements java.io.Serializable
+</DL>
+<DL><DD><DL><DD></DD></DL></DD>
+</DL>
+<DL><DT><B>Version:</B><DD>1.0</DD>
+<DT><B>Author:</B><DD>Rajkumar Nagapuri</DD>
+</DL>
+<TABLE BORDER="1" CELLPADDING="3" CELLSPACING="0" WIDTH="100%">
+<TR BGCOLOR="#CCCCFF"><TD COLSPAN=1><FONT SIZE="+2">
+<B>Constructor Detail</B>
+</FONT></TD></TR></TABLE>
+
+<H3>CoreDownloadWorker</H3>
+<PRE>
+public <B>CoreDownloadWorker</B>()</PRE>
+<DL><DD>Creates new CoreDownloadWorker<DL><DD></DD></DL></DD>
+</DL>
+<DL></DL>
+<HR>
+
+<TABLE BORDER="1" CELLPADDING="3" CELLSPACING="0" WIDTH="100%">
+<TR BGCOLOR="#CCCCFF"><TD COLSPAN=1><FONT SIZE="+2">
+<B>Method Detail</B>
+</FONT></TD></TR></TABLE>
+
+<H3>setURL</H3>
+<PRE>
+public void <B>setURL</B>(URL&nbsp;theURL)</PRE>
+<DL><DD>Also sets the ProtocolWrapper by using the ProtocolWrapperFactory.<DL><DD></DD></DL></DD>
+</DL>
+<DL></DL>
+<HR>
+
+<H3>getDownloadInfo</H3>
+<PRE>
+public void <B>getDownloadInfo</B>()</PRE>
+<DL><DD>Async method call. Returns immediately.<DL><DD></DD></DL></DD>
+</DL>
+<DL></DL>
+<HR>
+
+<H3>startDownload</H3>
+<PRE>
+public void <B>startDownload</B>()</PRE>
+<DL><DD>Spawns a new thread and uses the data put into this object to download the file fragment. Async method call. Returns immediately after starting.<DL><DD></DD></DL></DD>
+</DL>
+<DL></DL>
+<HR>
+
+<H3>stop</H3>
+<PRE>
+public void <B>stop</B>()</PRE>
+<DL><DD>Forcefully/Gracefully closes the connection. Does not return immediately - Calls IProtocolWrapper's stopRequested() method<DL><DD></DD></DL></DD>
+</DL>
+<DL></DL>
+<HR>
+
+</BODY>
+</HTML>

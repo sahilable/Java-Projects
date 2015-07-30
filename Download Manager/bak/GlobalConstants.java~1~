@@ -1,0 +1,25 @@
+/*
+ * GlobalConstants.java -
+  */
+
+package download;
+
+/**
+ *
+ * @author Rajkumar Nagapuri
+ * @version 1.0
+ */
+public abstract class GlobalConstants
+{
+    public static final String DO_IT_TITLE = "HTTP Download Manager";
+    public static final String ABOUT_MESSAGE = "Version : " + DO_IT_TITLE +" 1.0\nAuthor : Rajkumar Nagapuri" +"\nE-Mail : rajkumar.nagapuri@gmail.com";
+
+    public static final String DO_IT_PROPERTIES_FILE_NAME = "DoIt.properties";
+
+    public static java.io.File MAIN_DOWNLOAD_DIRECTORY;
+    public static java.io.File PROTOCOL_WRAPPERS_DIRECTORY;
+    public static java.io.File DO_IT_HOME_DIRECTORY;
+    public static java.io.File EXTERNAL_LIBRARIES_DIRECTORY;
+
+    public static int DO_IT_SERVER_PORT;
+}//end class

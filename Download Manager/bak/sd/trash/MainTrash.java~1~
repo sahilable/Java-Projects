@@ -1,0 +1,121 @@
+/*
+ * Main.java
+ *
+ * Created on January 20, 2002, 3:09 PM
+ */
+
+package sd.trash;
+
+import java.io.*;
+import javax.swing.*;
+
+/**
+ *
+ * @author  Ashwin Jayaprakash
+ * @version
+ */
+public class MainTrash implements Serializable
+{
+    private int k = 10;
+    private final String s = "Hallo";
+    private java.util.Date date = new java.util.Date();
+    private java.util.Date date2;
+    private transient int p = 300;
+    private final MainTrash main;
+    
+    /** Creates new Main */
+    public MainTrash(int j)
+    {
+        k += j;
+        p++;
+        //s += " there";
+        date2 = date;
+        main = this;
+        
+        System.out.println("In constr");
+    }
+    
+    public String stringOp()
+    {
+        return ">> k=" + k + ", s=" + s + ", Date=" + (date == date2) + ", p=" + p + ", main=" + main;
+    }
+    
+    public static void main1(String args[])
+    {
+        float floatFileSize = 2342 / 1024.0F;
+        int intFileSize = (int) floatFileSize;
+        float decimalPoints = ((int) ((floatFileSize - intFileSize) * 1000)) / 1000.0F;
+        floatFileSize = intFileSize + decimalPoints;
+        
+        System.out.println(">> " + floatFileSize);
+        /*for(int i=0; i<255; i++)
+            System.out.println(i + " = " + new Character((char)i ) );*/
+        JFrame jf = new JFrame();
+        jf.setVisible(true);
+        
+        String fileName = (String) JOptionPane.showInputDialog( jf,
+        "Helllo!!!", "", JOptionPane.INFORMATION_MESSAGE );
+        
+        System.out.println( fileName );
+        
+        System.exit(0);
+    }
+    
+    /**
+     * @param args the command line arguments
+     */
+    public static void main2(String args[])
+    {
+        try
+        {
+/* Create a file to write the serialized tree to. */
+            FileOutputStream ostream = new FileOutputStream("tree.tmp");
+/* Create the output stream */
+            ObjectOutputStream p = new ObjectOutputStream(ostream);
+            
+/* Create a tree with three levels. */
+            MainTrash m = new MainTrash(2);
+            System.out.println(m);
+            System.out.println(m.stringOp());
+            
+            p.writeObject(m); // Write the tree to the stream.
+            p.flush();
+            ostream.close();// close the file.
+     
+            try
+            {
+                Thread.currentThread().sleep(2000);
+            }//end try
+            catch(Exception e)
+            { e.printStackTrace(); }//end catch
+            
+/* Open the file and set to read objects from it. */
+            FileInputStream istream = new FileInputStream("tree.tmp");
+            ObjectInputStream q = new ObjectInputStream(istream);
+            
+/* Read a tree object, and all the subtrees */
+            MainTrash new_M = (MainTrash)q.readObject();
+            
+            System.out.println(new_M);
+            System.out.println(new_M.stringOp());
+        } catch (Exception ex)
+        {
+            ex.printStackTrace();
+        }
+    }
+    
+    public static void main(String[] args)
+    { 
+        try
+        {
+            System.out.println( new File("/home/ashwin/Desktop/steam.gif").toURL() );
+            /*
+            new sd.util.FileRecombiner(new File("/home/ashwin/Desktop/sd/5f0daa5c50dc4fffd68b48265e03bf92"),
+                               "5f0daa5c50dc4fffd68b48265e03bf92",
+                        22, new File("/home/ashwin/Desktop/sd/jedit321Manual.pdf") );
+            */
+        }//end try
+        catch(Exception e)
+        { e.printStackTrace(); }//end catch
+    }//end main
+}

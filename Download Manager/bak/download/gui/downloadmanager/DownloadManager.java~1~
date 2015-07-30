@@ -1,0 +1,235 @@
+/*
+ * DownloadManager.java - A part of the SpeedDemon download accelerator.
+ * SpeedDemon makes use of the RFC2616 HTTP protocol's 'Partial Content' header
+ * to speed up your downloads.
+ *
+ * Copyright (C) 2002 Ashwin Jayaprakash
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ *
+ *
+ * DownloadManager.java
+ *
+ * Created on January 6, 2002, 11:59 AM
+ */
+
+package download.gui.downloadmanager;
+
+import download.GlobalConstants;
+import download.core.downloadmanager.ProtocolWrapperFactory;
+import download.gui.MainFrame;
+
+import javax.swing.JInternalFrame;
+import javax.swing.JOptionPane;
+import java.net.URL;
+import java.util.Map;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Collections;
+import java.io.File;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+
+/**
+ *
+ * @author  Ashwin Jayaprakash
+ * @version
+ */
+public class DownloadManager
+{
+    protected static final String RE_ENTER_URLS_MSG = "The URL " +
+    "is invalid. \nPlease enter the correct URL again.";
+    protected static final String TOO_MANY_DOWNLOADS_MSG = "You are " +
+    "trying to download too many files at once.\n It is recommended that " +
+    "you download some of them later.";
+
+    protected static final int TOO_MANY_DOWNLOADS = 5;
+    protected static final int INTERNAL_FRAME_WIDTH = 500;
+    protected static final int INTERNAL_FRAME_HEIGHT = 440;
+    protected static final int INTERNAL_FRAME_ARRAY_POS = 0;
+    protected static final int CONTROLLER_ARRAY_POS = 1;
+    protected static final String DOWNLOAD_LIST_PANEL_TITLE = "Download list.";
+
+    private static Map mapOfInternalFrameAndControllers;
+    private static DownloadListPanel downloadListPanel;
+
+    private DownloadManager()
+    {
+        /* No code */
+    }//end constr
+
+    /**
+     *  Will be invoked by MainFrame.
+     */
+    public static void init()
+    {
+        mapOfInternalFrameAndControllers = Collections.synchronizedMap( new HashMap() );
+
+        downloadListPanel = new DownloadListPanel();
+        JInternalFrame internalFrame = new JInternalFrame(DOWNLOAD_LIST_PANEL_TITLE,
+        true, false, false, true);
+        internalFrame.getContentPane().add(downloadListPanel);
+        int location = MainFrame.INTERNAL_FRAME_OFFSET * MainFrame.getMainFrame().desktopPane.getAllFrames().length;
+        internalFrame.setLocation(location, location);
+        internalFrame.setSize(INTERNAL_FRAME_WIDTH, INTERNAL_FRAME_HEIGHT);
+
+        ArrayList list = null;
+        try
+        {
+            File listOfSerializedURLsFile = new File(GlobalConstants.MAIN_DOWNLOAD_DIRECTORY,
+            DownloadManagerGUIConstants.LIST_OF_URLS_SER_FILE_NAME);
+
+            if( listOfSerializedURLsFile.exists() )
+            {
+                ObjectInputStream ois = new ObjectInputStream( new FileInputStream(listOfSerializedURLsFile) );
+                list = (ArrayList) ois.readObject();
+                ois.close();
+            }//end if
+            else
+            {
+                list = new ArrayList(10);
+            }//end else
+        }//end try
+        catch(Exception e)
+        {
+            e.printStackTrace();
+            list = new ArrayList(10);
+        }//end catch
+
+        downloadListPanel.setListOfURLs(list);
+
+        MainFrame.getMainFrame().desktopPane.add(internalFrame);
+        internalFrame.setVisible(true);
+    }//end constr
+
+    /**
+     *  Will be invoked by MainFrame.
+     */
+    public static void destroy()
+    {
+        Object[] arrayOfStrings = mapOfInternalFrameAndControllers.keySet().toArray();
+        Object[] arrayOfArrays = new Object[ arrayOfStrings.length ];
+        // storing all of them in a seperate array to prevent concurrent
+        // modification exception.
+        for(int k=0; k < arrayOfStrings.length; k++)
+        {
+            String key = (String) arrayOfStrings[k];
+            arrayOfArrays[k] = mapOfInternalFrameAndControllers.get(key);
+        }//end for
+
+        for(int k=0; k < arrayOfArrays.length; k++)
+        {
+            Object[] internalFrameAndController = (Object[]) arrayOfArrays[k];
+            ((DownloadPanelController) internalFrameAndController[CONTROLLER_ARRAY_POS]).handleStop();
+        }//end for
+
+        try
+        {
+            File listOfSerializedURLsFile = new File(GlobalConstants.MAIN_DOWNLOAD_DIRECTORY,
+            DownloadManagerGUIConstants.LIST_OF_URLS_SER_FILE_NAME);
+
+            ObjectOutputStream oos = new ObjectOutputStream( new FileOutputStream(listOfSerializedURLsFile) );
+            ArrayList list = downloadListPanel.getListOfURLs();
+            oos.writeObject(list);
+            oos.flush();
+            oos.close();
+        }//end try
+        catch(Exception e)
+        {
+            e.printStackTrace();
+        }//end catch
+
+        downloadListPanel.setVisible(false);
+        MainFrame.getMainFrame().desktopPane.remove( downloadListPanel );
+        MainFrame.getMainFrame().desktopPane.revalidate();
+    }//end method
+
+    /**
+     *  Set of URLs in String format, which are currently running.
+     */
+    protected static java.util.Set getSetOfRunningDownloadURLs()
+    {
+        return mapOfInternalFrameAndControllers.keySet();
+    }//end method
+
+    /**
+     *  Will be invoked by MainFrame.
+     */
+    public static void handleAdd(String urlString)
+    {
+        if( mapOfInternalFrameAndControllers.containsKey(urlString) )
+            return;
+
+        URL url = null;
+        String error = null;
+        try
+        {
+            url = new URL(urlString);
+            if( ! ProtocolWrapperFactory.isProtocolSupported(url) )
+                throw new Exception("Protocol not supported.");
+        }//end try
+        catch(Exception e)
+        {
+            error = RE_ENTER_URLS_MSG;
+        }//end catch
+
+
+        if( error != null )
+        {
+            JOptionPane.showMessageDialog(download.gui.MainFrame.getMainFrame(), error,
+            GlobalConstants.SPEED_DEMON_TITLE, JOptionPane.ERROR_MESSAGE);
+            return;
+        }//end if
+
+        JInternalFrame internalFrame = new JInternalFrame(urlString, true, false, false, true);
+        DownloadPanelController controller = new DownloadPanelController(url);
+        internalFrame.getContentPane().add(controller.getDownloadPanel());
+        int location = MainFrame.INTERNAL_FRAME_OFFSET * MainFrame.getMainFrame().desktopPane.getAllFrames().length;
+        internalFrame.setLocation(location, location);
+        internalFrame.setSize(INTERNAL_FRAME_WIDTH, INTERNAL_FRAME_HEIGHT);
+
+        Object[] internalFrameAndController = new Object[2];
+        internalFrameAndController[INTERNAL_FRAME_ARRAY_POS] = internalFrame;
+        internalFrameAndController[CONTROLLER_ARRAY_POS] = controller;
+        mapOfInternalFrameAndControllers.put(urlString, internalFrameAndController);
+        downloadListPanel.addURLToList( urlString );
+
+        MainFrame.getMainFrame().desktopPane.add(internalFrame);
+        MainFrame.getMainFrame().desktopPane.revalidate();
+        internalFrame.setVisible(true);
+
+        if( mapOfInternalFrameAndControllers.size() > TOO_MANY_DOWNLOADS )
+        {
+            JOptionPane.showMessageDialog(download.gui.MainFrame.getMainFrame(), TOO_MANY_DOWNLOADS_MSG,
+            GlobalConstants.SPEED_DEMON_TITLE, JOptionPane.WARNING_MESSAGE);
+        }//end if
+    }//end method
+
+    /**
+     *  Will be invoked by DownloadPanelController.
+     */
+    protected synchronized static void handleRemove(String urlString)
+    {
+        Object[] internalFrameAndController = (Object[]) mapOfInternalFrameAndControllers.get(urlString);
+        mapOfInternalFrameAndControllers.remove(urlString);
+        ((JInternalFrame) internalFrameAndController[INTERNAL_FRAME_ARRAY_POS]).setVisible(false);
+        MainFrame.getMainFrame().desktopPane.remove( (JInternalFrame) internalFrameAndController[INTERNAL_FRAME_ARRAY_POS] );
+        MainFrame.getMainFrame().desktopPane.revalidate();
+    }//end method
+
+}//end class

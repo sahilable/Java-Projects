@@ -1,0 +1,163 @@
+===============================================================================
+Exception code: C0000005 ACCESS_VIOLATION
+Fault address:  6EE020C2 01:000010C2
+Module: C:\Program Files\Oracle\jre\1.1.7\bin\javai.dll
+
+System Information:
+Operating System: Windows NT Version 5.0 Build 2195 Service Pack 3
+Date and Time: 3/13/2005, 16:41
+Command line: "F:\Projects\Projects\Rajkumar\Final Projects\HSDM\DOITDownload\HTTP Download ManagerW.exe" 
+
+Registers:
+EAX:0012FDEC
+EBX:0012FDF8
+ECX:0012127F
+EDX:00000300
+ESI:0012FDE4
+EDI:00000003
+CS:EIP:001B:6EE020C2
+SS:ESP:0023:0012FD84  EBP:0012FE54
+DS:0023  ES:0023  FS:0038  GS:0000
+Flags:00010206
+
+
+Call stack:
+Address   Frame
+6EE020C2  0012FD90  java_main
+6EE1A35E  0012FDC4  JNI_CreateJavaVM
+00403612  0012FE54  _GetExceptDLLinfo
+00403C78  0012FECC  _GetExceptDLLinfo
+00401496  0012FF8C  _GetExceptDLLinfo
+0040DD76  0012FFB8  _GetExceptDLLinfo
+
+===============================================================================
+Exception code: C0000005 ACCESS_VIOLATION
+Fault address:  6EE020C2 01:000010C2
+Module: C:\Program Files\Oracle\jre\1.1.7\bin\javai.dll
+
+System Information:
+Operating System: Windows NT Version 5.0 Build 2195 Service Pack 3
+Date and Time: 3/13/2005, 16:41
+Command line: "F:\Projects\Projects\Rajkumar\Final Projects\HSDM\DOITDownload\HTTP Download ManagerW.exe" 
+
+Registers:
+EAX:0012FDEC
+EBX:0012FDF8
+ECX:0012127F
+EDX:00000300
+ESI:0012FDE4
+EDI:00000003
+CS:EIP:001B:6EE020C2
+SS:ESP:0023:0012FD84  EBP:0012FE54
+DS:0023  ES:0023  FS:0038  GS:0000
+Flags:00010206
+
+
+Call stack:
+Address   Frame
+6EE020C2  0012FD90  java_main
+6EE1A35E  0012FDC4  JNI_CreateJavaVM
+00403612  0012FE54  _GetExceptDLLinfo
+00403C78  0012FECC  _GetExceptDLLinfo
+00401496  0012FF8C  _GetExceptDLLinfo
+0040DD76  0012FFB8  _GetExceptDLLinfo
+
+===============================================================================
+Exception code: C0000005 ACCESS_VIOLATION
+Fault address:  6EE020C2 01:000010C2
+Module: C:\Program Files\Oracle\jre\1.1.7\bin\javai.dll
+
+System Information:
+Operating System: Windows NT Version 5.0 Build 2195 Service Pack 3
+Date and Time: 3/16/2005, 14:51
+Command line: "F:\Projects\Projects\Rajkumar\Final Projects\HSDM\DOITDownload\HTTP Download ManagerW.exe" 
+
+Registers:
+EAX:0012FDEC
+EBX:0012FDF8
+ECX:0012127F
+EDX:00000300
+ESI:0012FDE4
+EDI:00000003
+CS:EIP:001B:6EE020C2
+SS:ESP:0023:0012FD84  EBP:0012FE54
+DS:0023  ES:0023  FS:0038  GS:0000
+Flags:00010206
+
+
+Call stack:
+Address   Frame
+6EE020C2  0012FD90  java_main
+6EE1A35E  0012FDC4  JNI_CreateJavaVM
+00403612  0012FE54  _GetExceptDLLinfo
+00403C78  0012FECC  _GetExceptDLLinfo
+00401496  0012FF8C  _GetExceptDLLinfo
+0040DD76  0012FFB8  _GetExceptDLLinfo
+
+===============================================================================
+Exception code: C0000005 ACCESS_VIOLATION
+Fault address:  6EE020C2 01:000010C2
+Module: C:\Program Files\Oracle\jre\1.1.7\bin\javai.dll
+
+System Information:
+Operating System: Windows NT Version 5.0 Build 2195 Service Pack 3
+Date and Time: 3/16/2005, 14:51
+Command line: "F:\Projects\Projects\Rajkumar\Final Projects\HSDM\DOITDownload\HTTP Download ManagerW.exe" 
+
+Registers:
+EAX:0012FDEC
+EBX:0012FDF8
+ECX:0012127F
+EDX:00000300
+ESI:0012FDE4
+EDI:00000003
+CS:EIP:001B:6EE020C2
+SS:ESP:0023:0012FD84  EBP:0012FE54
+DS:0023  ES:0023  FS:0038  GS:0000
+Flags:00010206
+
+
+Call stack:
+Address   Frame
+6EE020C2  0012FD90  java_main
+6EE1A35E  0012FDC4  JNI_CreateJavaVM
+00403612  0012FE54  _GetExceptDLLinfo
+00403C78  0012FECC  _GetExceptDLLinfo
+00401496  0012FF8C  _GetExceptDLLinfo
+0040DD76  0012FFB8  _GetExceptDLLinfo
+
+===============================================================================
+Exception code: C0000027 Unwind exception code.
+
+Fault address:  7C5C1E94 01:00050E94
+Module: C:\WINNT\system32\KERNEL32.DLL
+
+System Information:
+Operating System: Windows NT Version 5.0 Build 2195 Service Pack 3
+Date and Time: 3/16/2005, 14:51
+Command line: "F:\Projects\Projects\Rajkumar\Final Projects\HSDM\DOITDownload\HTTP Download ManagerW.exe" 
+
+Registers:
+EAX:00000000
+EBX:00000000
+ECX:00000000
+EDX:00000000
+ESI:00000000
+EDI:00000000
+CS:EIP:001B:7C5C1E94
+SS:ESP:0023:0012F9A4  EBP:0012F9B4
+DS:7C570023  ES:0023  FS:003B  GS:120000
+Flags:00000202
+
+
+Call stack:
+Address   Frame
+7C5C1E94  0012F9B4  UTUnRegister
+7C5C1F9F  0012F9D8  UTUnRegister
+77F96BA7  0012F9FC  NtSetIoCompletion
+77F96C42  0012FA84  NtSetIoCompletion
+77F9FF6E  0012FE54  KiUserExceptionDispatcher
+00403C78  0012FECC  _GetExceptDLLinfo
+00401496  0012FF8C  _GetExceptDLLinfo
+0040DD76  0012FFB8  _GetExceptDLLinfo
+

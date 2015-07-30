@@ -1,0 +1,151 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML><!--JBuilder QuickDoc-->
+<HEAD>
+<TITLE>Class download.core.downloadmanager.CoreDownloadManager</TITLE><META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=utf-8">
+</HEAD>
+<BODY>
+
+<H2>
+<FONT SIZE="-1">download.core.downloadmanager</FONT>
+<BR>Class CoreDownloadManager</H2>
+<DL>
+<DT>public class <B>CoreDownloadManager</B><DT>implements java.io.Serializable
+</DL>
+<DL><DD><DL><DD></DD></DL></DD>
+</DL>
+<DL><DT><B>Version:</B><DD>1.0</DD>
+<DT><B>Author:</B><DD>Rajkumar Nagapuri</DD>
+</DL>
+<TABLE BORDER="1" CELLPADDING="3" CELLSPACING="0" WIDTH="100%">
+<TR BGCOLOR="#CCCCFF"><TD COLSPAN=1><FONT SIZE="+2">
+<B>Field Detail</B>
+</FONT></TD></TR></TABLE>
+
+<H3>READ_SIZE</H3>
+<PRE>
+protected static final int <B>READ_SIZE</B></PRE>
+<DL><DD>2 KB<DL><DD></DD></DL></DD>
+</DL>
+<DL></DL>
+<HR>
+
+<H3>MIN_CHUNK_SIZE</H3>
+<PRE>
+protected static final int <B>MIN_CHUNK_SIZE</B></PRE>
+<DL><DD>50 KB<DL><DD></DD></DL></DD>
+</DL>
+<DL></DL>
+<HR>
+
+<H3>downloadWorkers</H3>
+<PRE>
+private List <B>downloadWorkers</B></PRE>
+<DL><DD>Do not set downloadWorkers directly. Use the set method so that cache is also updated.<DL><DD></DD></DL></DD>
+</DL>
+<DL></DL>
+<HR>
+
+<H3>downloadWorkersArray</H3>
+<PRE>
+private transient CoreDownloadWorker[] <B>downloadWorkersArray</B></PRE>
+<DL><DD>The same downloadWorkers in an Array.<DL><DD></DD></DL></DD>
+</DL>
+<DL></DL>
+<HR>
+
+<TABLE BORDER="1" CELLPADDING="3" CELLSPACING="0" WIDTH="100%">
+<TR BGCOLOR="#CCCCFF"><TD COLSPAN=1><FONT SIZE="+2">
+<B>Constructor Detail</B>
+</FONT></TD></TR></TABLE>
+
+<H3>CoreDownloadManager</H3>
+<PRE>
+public <B>CoreDownloadManager</B>()</PRE>
+<DL><DD>Creates new DownloadManager<DL><DD></DD></DL></DD>
+</DL>
+<DL></DL>
+<HR>
+
+<TABLE BORDER="1" CELLPADDING="3" CELLSPACING="0" WIDTH="100%">
+<TR BGCOLOR="#CCCCFF"><TD COLSPAN=1><FONT SIZE="+2">
+<B>Method Detail</B>
+</FONT></TD></TR></TABLE>
+
+<H3>getDownloadWorkersArray</H3>
+<PRE>
+public CoreDownloadWorker[] <B>getDownloadWorkersArray</B>()</PRE>
+<DL><DD><DL><DD></DD></DL></DD>
+</DL>
+<DL><DT><B>Returns:</B><DD>Cached array form of the List of CoreDownloadWorkers.</DD>
+</DL>
+<HR>
+
+<H3>setDownloadID</H3>
+<PRE>
+public void <B>setDownloadID</B>(String&nbsp;id)</PRE>
+<DL><DD>This id will be used for the name of the sub directory in which all the data will be stored.<DL><DD></DD></DL></DD>
+</DL>
+<DL></DL>
+<HR>
+
+<H3>prepareWorkersForGettingDownloadInfo</H3>
+<PRE>
+public void <B>prepareWorkersForGettingDownloadInfo</B>()</PRE>
+<DL><DD>Creates a new list of CoreDownloadWorkers and sets their URLs to the list of CoreDownloadManager's URLs.<DL><DD></DD></DL></DD>
+</DL>
+<DL></DL>
+<HR>
+
+<H3>startGettingDownloadInfo</H3>
+<PRE>
+public void <B>startGettingDownloadInfo</B>()</PRE>
+<DL><DD>Expects the prepareWorkersForGettingDownloadInfo() to be invoked before this method is invoked.<DL><DD></DD></DL></DD>
+</DL>
+<DL></DL>
+<HR>
+
+<H3>analyzeAndFilterURLs</H3>
+<PRE>
+public int <B>analyzeAndFilterURLs</B>()</PRE>
+<DL><DD>Invoked after startGettingDownloadInfo().<DL><DD></DD></DL></DD>
+</DL>
+<DL><DT><B>Returns:</B><DD>The number of URLs that work.</DD>
+</DL>
+<HR>
+
+<H3>getURLsFromListOfCoreDownloadWorkers</H3>
+<PRE>
+protected List <B>getURLsFromListOfCoreDownloadWorkers</B>(List&nbsp;workers)</PRE>
+<DL><DD><DL><DD></DD></DL></DD>
+</DL>
+<DL><DT><B>Parameters:</B><DD><CODE>workers</CODE> - List of CoreDownloadWorkers</DD>
+<DT><B>Returns:</B><DD>List of URLs being used by the workers.</DD>
+</DL>
+<HR>
+
+<H3>prepareWorkersForFreshDownload</H3>
+<PRE>
+public void <B>prepareWorkersForFreshDownload</B>()</PRE>
+<DL><DD>Expects the analyzeAndFilterURLs() method to be invoked before this method is invoked. A worker from completedWorkersList() is chosen to get the Content Length if resume is not supported. If resume is supported, a worker from completedResumableWorkersList() is chosen.<DL><DD></DD></DL></DD>
+</DL>
+<DL></DL>
+<HR>
+
+<H3>startDownload</H3>
+<PRE>
+public void <B>startDownload</B>()</PRE>
+<DL><DD>prepareWorkersForFreshDownload() or loadDownloadInfo() must be invoked before this method is invoked.<DL><DD></DD></DL></DD>
+</DL>
+<DL></DL>
+<HR>
+
+<H3>getURLForDownload</H3>
+<PRE>
+protected URL <B>getURLForDownload</B>()</PRE>
+<DL><DD>Returns a URL from the List - load balanced<DL><DD></DD></DL></DD>
+</DL>
+<DL></DL>
+<HR>
+
+</BODY>
+</HTML>

@@ -1,0 +1,130 @@
+/*
+ * ProtocolWrapperFactory.java - A part of the SpeedDemon download accelerator.
+ * SpeedDemon makes use of the RFC2616 HTTP protocol's 'Partial Content' header
+ * to speed up your downloads.
+ *
+ * Copyright (C) 2002 Ashwin Jayaprakash
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ *
+ *
+ * ProtocolWrapperFactory.java
+ *
+ * Created on February 16, 2002, 10:41 PM
+ */
+
+package download.core.downloadmanager;
+
+import java.lang.reflect.Modifier;
+import java.net.URL;
+import java.io.File;
+import java.util.Set;
+import java.util.Map;
+import java.util.Iterator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.jar.*;
+
+/**
+ *
+ * @author  Ashwin Jayaprakash
+ * @version
+ */
+public class ProtocolWrapperFactory
+{
+    private static Map protocolWrappers = null;
+
+    /** Creates new ProtocolWrapperFactory */
+    private ProtocolWrapperFactory()
+    {
+    }//end constr
+
+    public static void init()
+    {
+        protocolWrappers = new HashMap();
+
+        File[] protocolWrapperJarFiles = download.GlobalConstants.PROTOCOL_WRAPPERS_DIRECTORY.listFiles();
+        Set protocolWrapperClassNames = new HashSet();
+        for(int i=0; i < protocolWrapperJarFiles.length; i++)
+        {
+            String fileName = protocolWrapperJarFiles[i].getName();
+            if( ! (fileName.endsWith(".jar") || fileName.endsWith(".zip")) )
+                continue;
+
+            try
+            {
+                JarFile jarFile = new JarFile( protocolWrapperJarFiles[i] );
+                Manifest manifest = jarFile.getManifest();
+                Attributes attributes = manifest.getMainAttributes();
+                String mainClassName = attributes.getValue( Attributes.Name.MAIN_CLASS );
+                jarFile.close();
+                protocolWrapperClassNames.add( mainClassName );
+            }//end try
+            catch(Exception e)
+            { e.printStackTrace(); }//end catch
+        }//end for
+
+        ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
+
+        Iterator iter = protocolWrapperClassNames.iterator();
+        while( iter.hasNext() )
+        {
+            try
+            {
+                Class clazz = classLoader.loadClass( (String) iter.next() );
+                int modifiers = clazz.getModifiers();
+                if(!Modifier.isInterface(modifiers)
+                && !Modifier.isAbstract(modifiers)
+                && IProtocolWrapper.class.isAssignableFrom(clazz))
+                {
+                    IProtocolWrapper pw = (IProtocolWrapper) clazz.newInstance();
+                    protocolWrappers.put( pw.getProtocolString().toLowerCase(), clazz );
+                }
+            }//end try
+            catch(Exception e)
+            { e.printStackTrace(); }//end catch
+        }//end while
+    }//end method
+
+    public static boolean isProtocolSupported(URL url)
+    {
+        Object tmp = protocolWrappers.get( url.getProtocol() );
+
+        if( tmp == null )
+            return false;
+
+        return true;
+    }//end method
+
+    public static IProtocolWrapper getProtocolWrapper(URL url)
+    {
+        Object tmp = protocolWrappers.get( url.getProtocol() );
+
+        if( tmp == null )
+            return null;
+
+        Class clazz = (Class) tmp;
+        IProtocolWrapper pw = null;
+        try
+        {
+            pw = (IProtocolWrapper) clazz.newInstance();
+        }//end try
+        catch(Exception e)
+        { e.printStackTrace(); }//end catch
+
+        return pw;
+    }//end method
+
+}//end class

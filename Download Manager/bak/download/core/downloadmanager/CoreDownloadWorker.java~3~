@@ -1,0 +1,479 @@
+/*
+ * CoreDownloadWorker.java - A part of the DoIt download accelerator.
+ * DoIt makes use of the RFC2616 HTTP protocol's 'Partial Content' header
+ * to speed up your downloads.
+ *
+ * Copyright (C) 2002 Malyadri Naidu
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ *
+ *
+ * CoreDownloadWorker.java
+ *
+ * Created on December 29, 2001, 11:24 AM
+ */
+
+package download.core.downloadmanager;
+
+import java.net.URL;
+import java.io.File;
+
+/**
+ *
+ * @author  Malyadri Naidu
+ * @version
+ */
+public class CoreDownloadWorker implements java.io.Serializable
+{
+    public static final int DEFAULT_MIN_POSITION = 0;
+    public static final int DEFAULT_MAX_POSITION = 100;
+
+    protected static final String CONNECTING_TO_SITE_MSG = "Connecting to site ...";
+    protected static final String GETTING_DOWNLOAD_INFO_MSG = "Getting download info ...";
+    protected static final String ILLEGAL_STATE_MSG = "Illegal state. Restarting...";
+    protected static final String STOPPING_MSG = "Stopping...";
+    protected static final String STOPPED_MSG = "Stopped";
+    protected static final String COMPLETED_MSG = "Completed";
+    protected static final String PAUSED_MSG = "Paused";
+    protected static final String ERROR_MSG = "Error: ";
+    protected static final int PAUSED_WAIT_WATCH_TIME = 500;
+
+    private URL url = null;
+    private transient boolean resumeSupported = false;
+    private int contentLength = 0;
+    private int rangeStart = DEFAULT_MIN_POSITION;
+    private int rangeEnd = DEFAULT_MAX_POSITION;
+    private int currentPos = 0;
+    private boolean completed = false;
+    private boolean paused = false;
+    private transient boolean running = false;
+    private transient Exception error = null;
+    private String fileName = null;
+
+    private transient String message = null;
+    private transient boolean stopRequested = false;
+    private InputOutput io = null;
+    private final CoreDownloadWorker coreDownloadWorker;
+    private transient IProtocolWrapper protocolWrapper = null;
+
+    /** Creates new CoreDownloadWorker */
+    public CoreDownloadWorker()
+    {
+        coreDownloadWorker = this;
+    }//end constr
+
+    public void setResumeSupported(boolean yesNo)
+    {
+        resumeSupported = yesNo;
+    }//end method
+
+    public boolean isResumeSupported()
+    {
+        return resumeSupported;
+    }//end method
+
+    public void setContentLength(int length)
+    {
+        contentLength = length;
+    }//end method
+
+    public int getContentLength()
+    {
+        return contentLength;
+    }//end method
+
+    /**
+     *  Also sets the ProtocolWrapper by using the ProtocolWrapperFactory.
+     */
+    public void setURL(URL theURL)
+    {
+        url = theURL;
+        protocolWrapper = ProtocolWrapperFactory.getProtocolWrapper(url);
+    }//end method
+
+    public URL getURL()
+    {
+        return url;
+    }//end method
+
+    protected void setRangeStart(int start)
+    {
+        rangeStart = start;
+    }//end method
+
+    public int getRangeStart()
+    {
+        return rangeStart;
+    }//end method
+
+    protected void setRangeEnd(int end)
+    {
+        rangeEnd = end;
+    }//end method
+
+    public int getRangeEnd()
+    {
+        return rangeEnd;
+    }//end method
+
+    protected synchronized void setCurrentPos(int pos)
+    {
+        currentPos = pos;
+    }//end method
+
+    public synchronized int getCurrentPos()
+    {
+        return currentPos;
+    }//end method
+
+    protected synchronized void setCompleted(boolean yesNo)
+    {
+        completed = yesNo;
+    }//end method
+
+    public synchronized boolean isCompleted()
+    {
+        return completed;
+    }//end method
+
+    public synchronized void setPaused(boolean yesNo)
+    {
+        if( ! running )
+            return;
+
+        // un-pause
+        if( paused == true && yesNo == false )
+        {
+            paused = yesNo;
+            notifyAll();
+        }//end if
+        else
+            paused = yesNo;
+    }//end method
+
+    public synchronized boolean isPaused()
+    {
+        return paused;
+    }//end method
+
+    public synchronized void setError(Exception e)
+    {
+        error = e;
+    }//end method
+
+    public synchronized Exception getError()
+    {
+        return error;
+    }//end method
+
+    public synchronized boolean isStopRequested()
+    {
+        return stopRequested;
+    }//end method
+
+    protected void setIProtocolWrapper(IProtocolWrapper wrapper)
+    {
+        protocolWrapper = wrapper;
+    }//end method
+
+    public IProtocolWrapper getIProtocolWrapper()
+    {
+        return protocolWrapper;
+    }//end method
+
+    protected void setFileName(String name)
+    {
+        fileName = name;
+    }//end method
+
+    public String getFileName()
+    {
+        return fileName;
+    }//end method
+
+    protected synchronized void setRunning(boolean yesNo)
+    {
+        running = yesNo;
+    }//end method
+
+    public synchronized boolean isRunning()
+    {
+        return running;
+    }//end method
+
+    protected void setInputOutput(InputOutput downloadIO)
+    {
+        io = downloadIO;
+    }//end method
+
+    public InputOutput getInputOutput()
+    {
+        return io;
+    }//end method
+
+    /**
+     * Async method call. Returns immediately.
+     */
+    public void getDownloadInfo()
+    {
+        if( isRunning() )
+            return;
+
+        Thread t = new Thread(  new Runnable()
+        {
+            public void run()
+            {
+                try
+                {
+                    synchronized(coreDownloadWorker)
+                    {
+                        coreDownloadWorker.stopRequested = false;
+                        coreDownloadWorker.running = true;
+                        coreDownloadWorker.completed = false;
+                        coreDownloadWorker.error = null;
+                        coreDownloadWorker.currentPos = DEFAULT_MIN_POSITION;
+
+                        coreDownloadWorker.message = GETTING_DOWNLOAD_INFO_MSG;
+                    }//end sync
+
+                    coreDownloadWorker.protocolWrapper = ProtocolWrapperFactory.getProtocolWrapper(coreDownloadWorker.url);
+                    coreDownloadWorker.protocolWrapper.setCoreDownloadWorker(coreDownloadWorker);
+                    coreDownloadWorker.protocolWrapper.getDownloadInfo();
+                }//end try
+                catch(Exception e)
+                {
+                    synchronized(coreDownloadWorker)
+                    {
+                        coreDownloadWorker.error = e;
+                    }//end sync
+                }//end catch
+                finally
+                {
+                    synchronized(coreDownloadWorker)
+                    {
+                        coreDownloadWorker.message = null;
+                        // natural end
+                        if( ! coreDownloadWorker.stopRequested && coreDownloadWorker.error == null )
+                        {
+                            coreDownloadWorker.completed = true;
+                            coreDownloadWorker.currentPos = DEFAULT_MAX_POSITION;
+                        }//end if
+                        coreDownloadWorker.running = false;
+                    }//end sync
+                    coreDownloadWorker.protocolWrapper = null;
+                }//end finally
+            }//end run
+        }//end runnable
+        );//end thread
+
+        t.setDaemon(true);
+        t.start();
+    }//end run
+
+    /**
+     *  Spawns a new thread and uses the data put into this object to
+     *  download the file fragment.
+     *  Async method call. Returns immediately after starting.
+     */
+    public void startDownload()
+    {
+        synchronized(coreDownloadWorker)
+        {
+            if( completed )
+                return;
+
+            if( running )
+                return;
+
+            running = true;
+        }//end sync
+
+        Thread t = new Thread(  new Runnable()
+        {
+            public void run()
+            {
+                coreDownloadWorker.asyncDownload();
+            }//end run
+        }//end runnable
+        );//end thread
+
+        t.setDaemon(true);
+        t.start();
+    }//end run
+
+    protected void asyncDownload()
+    {
+        synchronized(coreDownloadWorker)
+        {
+            running = true;
+            paused = false;
+            stopRequested = false;
+            error = null;
+            completed = false;
+
+            message = CONNECTING_TO_SITE_MSG;
+        }//end sync
+
+        byte[] data = new byte[ CoreDownloadManager.READ_SIZE ];
+        int numBytesRead = 0;
+
+        try
+        {
+            File theFile = new File(fileName);
+            if( theFile.exists() && theFile.length() != (currentPos - rangeStart) )
+            {
+                theFile.delete();
+                synchronized(coreDownloadWorker)
+                { currentPos = rangeStart; }//end sync
+                throw new Exception(ILLEGAL_STATE_MSG);
+            }//end if
+
+            if( protocolWrapper == null )
+            {
+                protocolWrapper = ProtocolWrapperFactory.getProtocolWrapper(url);
+            }//end if
+            protocolWrapper.setCoreDownloadWorker(coreDownloadWorker);
+            protocolWrapper.startDownload();
+            synchronized(coreDownloadWorker)
+            {
+                message = null;
+            }//end sync
+
+            while(true)
+            {
+                numBytesRead = protocolWrapper.read(data, 0, CoreDownloadManager.READ_SIZE);
+
+                io.saveBytes(fileName, data, numBytesRead);
+
+                synchronized(this)
+                {
+                    if( numBytesRead > -1 ) // not reached end
+                        currentPos += numBytesRead;
+
+                    if( currentPos >= rangeEnd )
+                    {
+                        currentPos = rangeEnd;
+                        completed = true;
+                        break;
+                    }//end if
+
+                    while( paused && ! stopRequested )
+                        wait(PAUSED_WAIT_WATCH_TIME);
+
+                    if( stopRequested )
+                        break;
+                }//end sync
+            }//end while
+        }//end try
+        catch(Exception e)
+        {
+            if( ! stopRequested )
+            {
+                synchronized(this)
+                {
+                    error = e;
+                }//end sync
+            }//end if
+        }//end catch
+        finally
+        {
+            synchronized(this)
+            {
+                running = false;
+
+                try
+                {
+                    //close
+                    io.saveBytes(fileName, null, -1);
+                }//end try
+                catch(Exception e)
+                { error = e; }//end catch
+            }//end sync
+            protocolWrapper = null;
+        }//end finally
+    }//end method
+
+    /**
+     *  Forcefully/Gracefully closes the connection.
+     *  Does not return immediately - Calls IProtocolWrapper's stopRequested()
+     *  method
+     */
+    public void stop()
+    {
+        try
+        {
+            synchronized(this)
+            {
+                stopRequested = true;
+                // wake up paused thread and then stopRequested
+                notifyAll();
+                protocolWrapper.stop();
+            }//end sync
+        }
+        catch(Exception e)
+        {
+            setError(e);
+        }//end catch
+    }//end method
+
+    public String toString()
+    {
+        String retStr = null;
+
+        synchronized( this )
+        {
+            if( completed )
+            {
+                retStr = COMPLETED_MSG;
+            }//end if completed
+            else if( stopRequested )
+            {
+                if( running )
+                    retStr = STOPPING_MSG;
+                else
+                    retStr = STOPPED_MSG;
+            }//end if
+            else if( paused )
+            {
+                retStr = PAUSED_MSG;
+            }//end else if paused
+            else if( error != null )
+            {
+                retStr = ERROR_MSG + error.getMessage();
+            }//end else if error
+            else
+            {
+                retStr = message;
+            }//end else
+        }//end sync
+
+        return retStr;
+    }//end method
+
+    private void writeObject(java.io.ObjectOutputStream out)
+    throws java.io.IOException
+    {
+        synchronized(this)
+        {
+            out.defaultWriteObject();
+        }//end sync
+    }//end method
+
+    private void readObject(java.io.ObjectInputStream in)
+    throws java.io.IOException, ClassNotFoundException
+    {
+        in.defaultReadObject();
+    }//end method
+}//end class

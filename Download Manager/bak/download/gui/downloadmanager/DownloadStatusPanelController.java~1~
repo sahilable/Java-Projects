@@ -1,0 +1,647 @@
+/*
+ * DownloadStatusPanelController.java - A part of the SpeedDemon download accelerator.
+ * SpeedDemon makes use of the RFC2616 HTTP protocol's 'Partial Content' header
+ * to speed up your downloads.
+ *
+ * Copyright (C) 2002 Ashwin Jayaprakash
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ *
+ *
+ * DownloadStatusPanelController.java
+ *
+ * Created on January 19, 2002, 9:49 AM
+ */
+
+package download.gui.downloadmanager;
+
+import download.core.downloadmanager.CoreDownloadWorker;
+import download.core.downloadmanager.CoreDownloadManager;
+import download.core.downloadmanager.InputOutput;
+
+import java.awt.event.InputEvent;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.awt.event.MouseListener;
+import java.awt.event.MouseEvent;
+import java.util.Iterator;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Observable;
+import java.net.URL;
+
+import javax.swing.JButton;
+import javax.swing.JMenu;
+import javax.swing.JMenuItem;
+import javax.swing.SwingUtilities;
+
+/**
+ *
+ * @author  Ashwin Jayaprakash
+ * @version
+ */
+public class DownloadStatusPanelController extends Observable
+{
+    protected static final int GUI_UPDATE_FREQ = 300; //milliseconds
+    protected static final int INIT_STATE = 0;
+    protected static final int MONITOR_STATE = 1;
+    protected static final int HANDLE_EVENT_STATE = 2;
+    protected static final int END_STATE = 3;
+
+    private DownloadStatusPanel downloadStatusPanel;
+    private CoreDownloadManager coreDownloadManager;
+
+    private StateMaintainerThread stateMaintainerThread;
+    private SwingUtilitiesInvokerRunnableTarget swingUtilitiesInvokerRunnableTarget;
+    private MouseAndActionListener mouseAndActionListener;
+    private MenuItemProvider menuItemProvider;
+    private LinkedList eventsQueue;
+    private int currentState;
+
+    private boolean downloadMode;
+    private boolean prepareWorkersForFreshDownload;
+    /** First element of eventsQueue Object which was just removed by eventHandler */
+    private Object dataSharedForGUI;
+    private Object dataSharedForNotification;
+    private boolean firstContinueEventOccured;
+
+    /** Creates new DownloadStatusPanelController
+     * @param idownloadownload False,if mode is 'getDownloadInfo'. True, if 'download' mode.
+     * @param isPrepareWorkersRequired, if this is a download session and PrepareWorkersForFreshDownload
+     *        is required, then True. False otherwise.
+     */
+    public DownloadStatusPanelController(CoreDownloadManager mgr, boolean isDownload,
+    boolean isPrepareWorkersRequired)
+    {
+        coreDownloadManager = mgr;
+        downloadMode = isDownload;
+        prepareWorkersForFreshDownload = isPrepareWorkersRequired;
+        currentState = INIT_STATE;
+        dataSharedForGUI = null;
+        dataSharedForNotification = null;
+
+        downloadStatusPanel = new DownloadStatusPanel();
+
+        stateMaintainerThread = new StateMaintainerThread();
+        swingUtilitiesInvokerRunnableTarget = new SwingUtilitiesInvokerRunnableTarget();
+        mouseAndActionListener = new MouseAndActionListener();
+        eventsQueue = new LinkedList();
+        firstContinueEventOccured = false;
+
+        stateMaintainerThread.setDaemon(true);
+        stateMaintainerThread.start();
+    }//end constr
+
+    /**
+     *  Invoked by DownloadPanelController's actionListener() which inturn listens
+     *  to the JButton action events of DownloadPanel.
+     *  Posts event on Event queue and disables the button that
+     *  invoked it. This button will be enabled after the event has been serviced.
+     *  Warning!! This thread must be invoked only by AWT-EventDispather thread.
+     *
+     *  @returns False if StateMaintainerThread is dead and hence event cannot be
+     *           handled. True if event is being processed.
+     */
+    public boolean handleActionEvent(ActionEvent ae)
+    {
+        if( ! stateMaintainerThread.isAlive() )
+            return false;
+
+        synchronized( eventsQueue )
+        {
+            eventsQueue.addLast( ae );
+            eventsQueue.notifyAll();
+        }//end sync
+
+        return true;
+    }//end method
+
+    public DownloadStatusPanel getDownloadStatusPanel()
+    {
+        return downloadStatusPanel;
+    }//end method
+
+    /**
+     * All pre & post processing of UI is done. Actual UI updation is done in a Thread safe
+     * manner by using SwingUtilities.invoke*(...), where the Runnable target is an inner
+     * class.
+     */
+    protected void stateMaintainer()
+    {
+        try
+        {
+            while( currentState != END_STATE )
+            {
+                switch(currentState)
+                {
+                    case INIT_STATE:
+                        initState();
+                        currentState = MONITOR_STATE;
+                        break;
+
+                    case HANDLE_EVENT_STATE:
+                        handleEvent();
+                        if( currentState != END_STATE )
+                        {
+                            currentState = MONITOR_STATE;
+                            monitorState();
+                        }//end if
+                        break;
+
+                    case MONITOR_STATE:
+                        monitorState();
+                        break;
+
+                    case END_STATE:
+                    default:
+                        break;
+                }//end switch
+
+                if( currentState == END_STATE )
+                {
+                    setChanged();
+                    notifyObservers( dataSharedForNotification );
+                    break;
+                }//end outer if
+
+                //---- wait()/sleep() here until notified --------------
+                try
+                {
+                    synchronized(eventsQueue)
+                    {
+                        if( eventsQueue.size() == 0 )
+                        {
+                            eventsQueue.wait(GUI_UPDATE_FREQ);
+                            currentState = MONITOR_STATE;
+                        }//end if
+
+                        if( eventsQueue.size() > 0 )
+                            currentState = HANDLE_EVENT_STATE;
+                    }//end sync
+                }//end try
+                catch(InterruptedException ie)
+                {
+                    //???
+                    ie.printStackTrace();
+                }//end catch
+                //---- end wait()/sleep() here until notified --------------
+
+            }//end while
+        }//end try
+        catch(Exception e)
+        {
+            //???
+            //handle
+            e.printStackTrace();
+        }//end catch
+    }//end method
+
+    protected void initState()
+    {
+        if( downloadMode )
+        {
+            if( prepareWorkersForFreshDownload )
+                coreDownloadManager.prepareWorkersForFreshDownload();
+        }//end inner if
+        else
+        {
+            coreDownloadManager.prepareWorkersForGettingDownloadInfo();
+        }//end inner else
+
+        //----- prepare the JList and MouseListener of downloadStatusPanel -------
+        downloadStatusPanel.accept(coreDownloadManager);
+
+        downloadStatusPanel.workerList.addMouseListener( mouseAndActionListener );
+        menuItemProvider = new MenuItemProvider( mouseAndActionListener, downloadMode,
+        coreDownloadManager.isResumeSupported(), coreDownloadManager.getURLs() );
+
+        CoreDownloadWorker[] workersArray = coreDownloadManager.getDownloadWorkersArray();
+        for(int i=0; i < workersArray.length; i++)
+        {
+            String urlStr = workersArray[i].getURL().toExternalForm();
+            downloadStatusPanel.listComponents[i].textField.setText( urlStr );
+
+            int intValue = workersArray[i].getRangeEnd();
+            downloadStatusPanel.listComponents[i].progressBar.setMaximum( intValue );
+            intValue = workersArray[i].getRangeStart();
+            downloadStatusPanel.listComponents[i].progressBar.setMinimum( intValue );
+            intValue = workersArray[i].getCurrentPos();
+            downloadStatusPanel.listComponents[i].progressBar.setValue( intValue );
+            String strValue = workersArray[i].toString();
+            downloadStatusPanel.listComponents[i].progressBar.setString( strValue );
+        }//end for
+        //----- end prepare the JList and MouseListener of downloadStatusPanel ----
+    }//end method
+
+    protected void handleEvent()
+    {
+        try
+        {
+            String actionCommand;
+            int[] selectedIndices = downloadStatusPanel.workerList.getSelectedIndices();
+
+            synchronized(eventsQueue)
+            {
+                dataSharedForGUI = eventsQueue.removeFirst();
+            }//end sync
+
+            if( dataSharedForGUI instanceof MouseEvent )
+            {
+                MouseEvent me = (MouseEvent) dataSharedForGUI;
+                if( selectedIndices.length > 0 )
+                {
+                    menuItemProvider.popupMenu.show(downloadStatusPanel, me.getX(), me.getY());
+                }//end inner if
+            }//end if mouse event
+            else if( dataSharedForGUI instanceof ActionEvent &&
+            ((ActionEvent) dataSharedForGUI).getSource() instanceof JButton )
+            {
+                ActionEvent ae = (ActionEvent) dataSharedForGUI;
+                actionCommand = ae.getActionCommand();
+                if( actionCommand.equals(DownloadManagerGUIConstants.CONTINUE) )
+                {
+                    if( downloadMode )
+                    {
+                        coreDownloadManager.startDownload();
+                    }//end inner if
+                    else
+                    {
+                        coreDownloadManager.startGettingDownloadInfo();
+                    }//end inner else
+
+                    SwingUtilities.invokeAndWait( swingUtilitiesInvokerRunnableTarget );
+                    firstContinueEventOccured = true;
+                }//end if start
+                else if( actionCommand.equals(DownloadManagerGUIConstants.SKIP) )
+                {
+                    coreDownloadManager.stop();
+                    SwingUtilities.invokeAndWait( swingUtilitiesInvokerRunnableTarget );
+
+                    dataSharedForNotification = dataSharedForGUI;
+                    currentState = END_STATE;
+                }//end else if skip
+                else if( actionCommand.equals(DownloadManagerGUIConstants.STOP) )
+                {
+                    coreDownloadManager.stop();
+                    SwingUtilities.invokeAndWait( swingUtilitiesInvokerRunnableTarget );
+
+                    dataSharedForNotification = dataSharedForGUI;
+                    currentState = END_STATE;
+                }//end else if stop
+                else if( actionCommand.equals(DownloadManagerGUIConstants.PAUSE) )
+                {
+                    coreDownloadManager.pauseResumeDownload(true);
+                    SwingUtilities.invokeAndWait( swingUtilitiesInvokerRunnableTarget );
+                }//end else if pause
+                else if( actionCommand.equals(DownloadManagerGUIConstants.RESUME) )
+                {
+                    coreDownloadManager.pauseResumeDownload(false);
+                    SwingUtilities.invokeAndWait( swingUtilitiesInvokerRunnableTarget );
+                }//end else if resume
+            }//end else if button action event
+            else if( dataSharedForGUI instanceof ActionEvent &&
+            ((ActionEvent) dataSharedForGUI).getSource() instanceof JMenuItem )
+            {
+                ActionEvent ae = (ActionEvent) dataSharedForGUI;
+                actionCommand = ae.getActionCommand();
+                if( actionCommand.equals(DownloadManagerGUIConstants.CONTINUE) )
+                {
+                    CoreDownloadWorker[] workersArray = coreDownloadManager.getDownloadWorkersArray();
+                    for(int i=0; i<selectedIndices.length; i++)
+                    {
+                        if( downloadMode )
+                            workersArray[ selectedIndices[i] ].startDownload();
+                        else
+                            workersArray[ selectedIndices[i] ].getDownloadInfo();
+                    }//end for
+                }//end if start
+                else if( actionCommand.equals(DownloadManagerGUIConstants.STOP) )
+                {
+                    CoreDownloadWorker[] workersArray = coreDownloadManager.getDownloadWorkersArray();
+                    for(int i=0; i<selectedIndices.length; i++)
+                    {
+                        workersArray[ selectedIndices[i] ].stop();
+                    }//end for
+                }//end else if stop
+                else if( actionCommand.equals(DownloadManagerGUIConstants.PAUSE) )
+                {
+                    CoreDownloadWorker[] workersArray = coreDownloadManager.getDownloadWorkersArray();
+                    for(int i=0; i<selectedIndices.length; i++)
+                    {
+                        workersArray[ selectedIndices[i] ].setPaused(true);
+                    }//end for
+                }//end else if pause
+                else if( actionCommand.equals(DownloadManagerGUIConstants.RESUME) )
+                {
+                    CoreDownloadWorker[] workersArray = coreDownloadManager.getDownloadWorkersArray();
+                    for(int i=0; i<selectedIndices.length; i++)
+                    {
+                        workersArray[ selectedIndices[i] ].setPaused(false);
+                    }//end for
+                }//end else if resume
+                else
+                {
+                    ae = (ActionEvent) dataSharedForGUI;
+                    JMenuItem clickedMenuItem = (JMenuItem) ae.getSource();
+                    URL switchURLTo = null;
+                    try
+                    {
+                        switchURLTo = new URL( clickedMenuItem.getText() );
+                    }//end try
+                    catch(Exception e)
+                    { e.printStackTrace(); }//end catch
+
+                    int i;
+                    CoreDownloadWorker[] workersArray = coreDownloadManager.getDownloadWorkersArray();
+                    for(i=0; i < selectedIndices.length; i++)
+                    {
+                        try
+                        {
+                            if( workersArray[ selectedIndices[i] ].getURL().equals(switchURLTo) )
+                                continue;
+
+                            workersArray[ selectedIndices[i] ].stop();
+                            workersArray[ selectedIndices[i] ].setURL( switchURLTo );
+                            workersArray[ selectedIndices[i] ].startDownload();
+                        }//end try
+                        catch(Exception e)
+                        { e.printStackTrace(); }//end catch
+                    }//end for
+                }//end else if switch_url_to
+            }//end if menu action event
+        }//end try
+        catch(Exception e)
+        { e.printStackTrace(); }//end catch
+    }//end method
+
+    protected void monitorState()
+    {
+        int numCompleted = 0;
+        CoreDownloadWorker[] workersArray = coreDownloadManager.getDownloadWorkersArray();
+
+        // try to resume broken downloads
+        if( firstContinueEventOccured )
+        {
+            for(int i=0; i<workersArray.length; i++)
+            {
+                if( workersArray[i].isCompleted() )
+                {
+                    numCompleted++;
+                    continue;
+                }//end if
+
+                if( ! workersArray[i].isPaused() && ! workersArray[i].isStopRequested() )
+                {
+                    if( ! workersArray[i].isRunning()  ||
+                    workersArray[i].getError() != null )
+                    {
+                        if( downloadMode )
+                            workersArray[i].startDownload();
+                        else
+                            workersArray[i].getDownloadInfo();
+                    }//end inner if
+                }//end outer if
+            }//end for
+        }//end outermost if
+        try
+        {
+            SwingUtilities.invokeAndWait( swingUtilitiesInvokerRunnableTarget );
+        }//end try
+        catch(Exception e)
+        { e.printStackTrace(); }//end catch
+
+        // natural completion
+        if( numCompleted == workersArray.length )
+        {
+            dataSharedForNotification = null;
+            currentState = END_STATE;
+        }//end if
+    }//end method
+
+    /**
+     * Warning!! This thread must be invoked only by AWT-EventDispather thread.
+     */
+    protected void guiUpdater()
+    {
+        if( ! SwingUtilities.isEventDispatchThread() )
+            return;
+
+        switch(currentState)
+        {
+            case INIT_STATE:
+                break;
+
+            case HANDLE_EVENT_STATE:
+                if( dataSharedForGUI instanceof MouseEvent )
+                {
+                    MouseEvent me = (MouseEvent) dataSharedForGUI;
+                    if( me.isPopupTrigger() && downloadMode &&
+                    downloadStatusPanel.workerList.getSelectedIndices().length > 0 )
+                    {
+                        menuItemProvider.popupMenu.show(downloadStatusPanel, me.getX(), me.getY());
+                    }//end inner if
+                }//end if mouse event
+                else if( dataSharedForGUI instanceof ActionEvent &&
+                ((ActionEvent) dataSharedForGUI).getSource() instanceof JButton )
+                {
+                    ActionEvent ae = (ActionEvent) dataSharedForGUI;
+                    String actionCommand = ae.getActionCommand();
+                    JButton srcBtn = (JButton) ae.getSource();
+
+                    if( actionCommand.equals(DownloadManagerGUIConstants.CONTINUE) )
+                    {
+                        if( downloadMode )
+                        {
+                            srcBtn.setText( DownloadManagerGUIConstants.PAUSE );
+                            srcBtn.setEnabled(true);
+                        }//end if
+                        else
+                        {
+                            srcBtn.setText( DownloadManagerGUIConstants.SKIP );
+                            srcBtn.setEnabled(true);
+                        }//end else
+                    }//end if start
+                    else if( actionCommand.equals(DownloadManagerGUIConstants.STOP) )
+                    {
+                        srcBtn.setEnabled(true);
+                    }//end else if stop
+                    else if( actionCommand.equals(DownloadManagerGUIConstants.PAUSE) )
+                    {
+                        srcBtn.setText( DownloadManagerGUIConstants.RESUME );
+                        srcBtn.setEnabled(true);
+                    }//end else if pause
+                    else if( actionCommand.equals(DownloadManagerGUIConstants.SKIP) )
+                    {
+                        srcBtn.setText( DownloadManagerGUIConstants.CONTINUE );
+                        srcBtn.setEnabled(true);
+                    }//end else if pause
+                    else if( actionCommand.equals(DownloadManagerGUIConstants.RESUME) )
+                    {
+                        srcBtn.setText( DownloadManagerGUIConstants.PAUSE );
+                        srcBtn.setEnabled(true);
+                    }//end else if resume
+                }//end if button action event
+                else if( dataSharedForGUI instanceof ActionEvent &&
+                ((ActionEvent) dataSharedForGUI).getSource() instanceof JMenuItem )
+                {
+                    /* no code yet */
+                }//end else if menu event
+                break;
+
+            case MONITOR_STATE:
+                CoreDownloadWorker[] workersArray = coreDownloadManager.getDownloadWorkersArray();
+                for(int i=0; i < workersArray.length; i++)
+                {
+                    String urlStr = workersArray[i].getURL().toExternalForm();
+                    downloadStatusPanel.listComponents[i].textField.setText( urlStr );
+
+                    int value = workersArray[i].getCurrentPos();
+                    downloadStatusPanel.listComponents[i].progressBar.setValue( value );
+
+                    String msg = workersArray[i].toString();
+                    downloadStatusPanel.listComponents[i].progressBar.setString( msg );
+                }//end for
+                break;
+
+            case END_STATE:
+            default:
+                break;
+        }//end switch
+    }//end method
+
+    //------- inner class StateMaintainerThread --------------------
+    protected class StateMaintainerThread extends Thread
+    {
+        public void run()
+        {
+            DownloadStatusPanelController.this.stateMaintainer();
+        }//end run
+    }//end class StateMaintainerThread
+    //------- end inner class StateMaintainerThread --------------------
+
+    //------- inner class SwingUtilitiesInvokerRunnableTarget --------------------
+    protected class SwingUtilitiesInvokerRunnableTarget implements Runnable
+    {
+        public void run()
+        {
+            DownloadStatusPanelController.this.guiUpdater();
+            downloadStatusPanel.repaint();
+        }//end run
+    }//end class SwingUtilitiesInvokerRunnableTarget
+    //------- end inner class SwingUtilitiesInvokerRunnableTarget --------------------
+
+    //------- inner class MouseAndActionListener --------------------
+    protected class MouseAndActionListener
+    implements ActionListener, MouseListener
+    {
+        public void actionPerformed(ActionEvent ae)
+        {
+            synchronized(DownloadStatusPanelController.this.eventsQueue)
+            {
+                DownloadStatusPanelController.this.eventsQueue.addLast( ae );
+                DownloadStatusPanelController.this.eventsQueue.notifyAll();
+            }//end sync
+        }//end actionPerformed
+
+        public void mouseExited(java.awt.event.MouseEvent mouseEvent)
+        {
+        }//end method
+
+        public void mouseReleased(java.awt.event.MouseEvent mouseEvent)
+        {
+        }//end method
+
+        public void mousePressed(java.awt.event.MouseEvent mouseEvent)
+        {
+        }//end method
+
+        public void mouseClicked(java.awt.event.MouseEvent mouseEvent)
+        {
+            int onMask = InputEvent.BUTTON3_MASK;
+            if( (mouseEvent.getModifiers() & onMask) == onMask || mouseEvent.isPopupTrigger() )
+            {
+                synchronized(DownloadStatusPanelController.this.eventsQueue)
+                {
+                    DownloadStatusPanelController.this.eventsQueue.addLast( mouseEvent );
+                    DownloadStatusPanelController.this.eventsQueue.notifyAll();
+                }//end sync
+            }//end if
+        }//end method
+
+        public void mouseEntered(java.awt.event.MouseEvent mouseEvent)
+        {
+        }//end method
+
+    }//end class MouseAndActionListener
+    //------- end inner class MouseAndActionListener --------------------
+
+    //---------- inner class MenuItemProvider ---------------------
+    protected class MenuItemProvider
+    {
+        protected javax.swing.JPopupMenu popupMenu;
+        protected javax.swing.JMenuItem startMenuItem;
+        protected javax.swing.JMenuItem stopMenuItem;
+        protected javax.swing.JMenuItem pauseMenuItem;
+        protected javax.swing.JMenuItem resumeMenuItem;
+        protected javax.swing.JMenu switchURLToMenu;
+        protected javax.swing.JMenuItem[] switchURLToMenuItems;
+
+        public MenuItemProvider(ActionListener al, boolean isDownload,
+        boolean isResumeSupported, List urls)
+        {
+            popupMenu = new javax.swing.JPopupMenu();
+
+            startMenuItem = new javax.swing.JMenuItem(DownloadManagerGUIConstants.CONTINUE);
+            startMenuItem.addActionListener(al);
+            popupMenu.add(startMenuItem);
+
+            stopMenuItem = new javax.swing.JMenuItem(DownloadManagerGUIConstants.STOP);
+            stopMenuItem.addActionListener(al);
+            popupMenu.add(stopMenuItem);
+
+            if( isDownload )
+            {
+                if( isResumeSupported )
+                {
+                    pauseMenuItem = new javax.swing.JMenuItem(DownloadManagerGUIConstants.PAUSE);
+                    pauseMenuItem.addActionListener(al);
+                    popupMenu.add(pauseMenuItem);
+
+                    resumeMenuItem = new javax.swing.JMenuItem(DownloadManagerGUIConstants.RESUME);
+                    resumeMenuItem.addActionListener(al);
+                    popupMenu.add(resumeMenuItem);
+                }//end inner if
+
+                switchURLToMenu = new javax.swing.JMenu(DownloadManagerGUIConstants.SWITCH_URL_TO);
+                popupMenu.add(switchURLToMenu);
+
+                int size = coreDownloadManager.getURLs().size();
+                switchURLToMenuItems = new JMenuItem[ size ];
+                int j=0;
+                Iterator iter = coreDownloadManager.getURLs().iterator();
+                while(iter.hasNext())
+                {
+                    URL aURL = (URL) iter.next();
+                    switchURLToMenuItems[j] = new JMenuItem( aURL.toExternalForm() );
+                    switchURLToMenuItems[j].addActionListener( mouseAndActionListener );
+                    switchURLToMenu.add( switchURLToMenuItems[j] );
+                    j++;
+                }//end while
+            }//end if isDownload
+        }//end constr
+    }//end class MenuItemProvider
+    //---------- end inner class MenuItemProvider ---------------------
+
+}//end class

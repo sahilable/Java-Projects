@@ -1,0 +1,49 @@
+/*
+ * IProtocolWrapper.java - A part of the SpeedDemon download accelerator.
+ * SpeedDemon makes use of the RFC2616 HTTP protocol's 'Partial Content' header
+ * to speed up your downloads.
+ *
+ * Copyright (C) 2002 Malyadri Naidu
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ *
+ *
+ * IProtocolWrapper.java
+ *
+ * Created on January 12, 2002, 5:33 PM
+ */
+
+package download.core.downloadmanager;
+
+/**
+ *
+ * @author  Malyadri Naidu
+ * @version
+ */
+public interface IProtocolWrapper
+{
+ public String getProtocolString();
+
+ public void setCoreDownloadWorker(CoreDownloadWorker worker);
+
+ public void getDownloadInfo() throws Exception;
+
+ public void startDownload() throws Exception;
+
+ public int read(byte[] buffer, int offset, int length)
+        throws Exception;
+
+ public void stop();
+}//end interface

@@ -1,0 +1,169 @@
+/*
+ * HTTP_ProtocolWrapper.java
+ *
+ * Created on February 17, 2002, 10:00 AM
+ */
+
+package http_protocolwrapper;
+
+import download.core.downloadmanager.CoreDownloadWorker;
+import download.GlobalConstants;
+
+import HTTPClient.*;
+import java.io.File;
+import java.io.FileInputStream;
+import java.util.Properties;
+import java.io.InputStream;
+import java.net.URL;
+
+/**
+ *
+ * @author  Malyadri Naidu
+ * @version
+ */
+public class HTTP_ProtocolWrapper implements download.core.downloadmanager.IProtocolWrapper
+{
+    public static final String HTTP_CLIENT_PROPERTIES_FILE_NAME = "HTTP_ProtocolWrapper.properties";
+    private static boolean initSuccess;
+
+    private CoreDownloadWorker worker;
+    private HTTPConnection connection;
+    private HTTPResponse rsp;
+    private InputStream ipStream;
+
+    /** Creates new HTTP_ProtocolWrapper */
+    public HTTP_ProtocolWrapper()
+    {
+        if( initSuccess == false )
+        {
+            setHTTPClientProperties();
+        }//end if
+    }//end constr
+
+    private static void setHTTPClientProperties()
+    {
+        try
+        {
+            Properties properties = new Properties();
+            File f = new File(GlobalConstants.PROTOCOL_WRAPPERS_DIRECTORY, HTTP_CLIENT_PROPERTIES_FILE_NAME);
+            FileInputStream fis = new FileInputStream(f);
+            properties.load(fis);
+
+            System.getProperties().putAll( properties );
+            //accept all cookies blindly
+            HTTPClient.CookieModule.setCookiePolicyHandler(null);
+
+            initSuccess = true;
+            fis.close();
+        }//end try
+        catch(Exception e)
+        {
+            initSuccess = false;
+            e.printStackTrace();
+        }//end catch
+    }//end method
+
+    public void setCoreDownloadWorker(CoreDownloadWorker downloadWorker)
+    {
+        worker = downloadWorker;
+    }//end method
+
+    public String getProtocolString()
+    {
+        return "HTTP";
+    }//end method
+
+    public void getDownloadInfo() throws Exception
+    {
+        URL url = worker.getURL();
+        connection = new HTTPConnection( url );
+        // 20 KB
+        NVPair[] nvPairs = new NVPair[]
+        { new NVPair("Range", "bytes=0-20480") };
+        connection.setDefaultHeaders(nvPairs);
+
+        rsp = connection.Head(url.getFile(), url.getQuery());
+
+        if( rsp.getStatusCode() >= 300 )
+        {
+            worker.setError( new Exception(rsp.getReasonLine()) );
+        }//end if
+        else if( rsp.getStatusCode() == 206 )
+        {
+            try
+            {
+                resumeSupportedWork();
+            }//end try
+            catch(Exception e)
+            {
+                try
+                {
+                    resumeNotSupportedWork();
+                }//end try
+                catch(Exception ex)
+                {
+                    worker.setError( ex );
+                }//end catch
+            }//end catch
+        }//end else if
+        else if( rsp.getStatusCode() == 200 )
+        {
+            try
+            {
+                resumeNotSupportedWork();
+            }//end try
+            catch(Exception e)
+            {
+                worker.setError( e );
+            }//end catch
+        }//end else
+
+        worker = null;
+        rsp = null;
+    }//end method
+
+    protected void resumeSupportedWork() throws Exception
+    {
+        String strRange = rsp.getHeader("Content-Range");
+        String strContentLength = strRange.substring(strRange.indexOf('/')+1);
+        int intContentLength = Integer.parseInt( strContentLength );
+        worker.setContentLength( intContentLength );
+        worker.setResumeSupported(true);
+    }//end method
+
+    protected void resumeNotSupportedWork() throws Exception
+    {
+        worker.setContentLength( rsp.getHeaderAsInt("ContentLength") );
+        worker.setResumeSupported(false);
+    }//end method
+
+    public void startDownload() throws Exception
+    {
+        URL url = worker.getURL();
+        connection = new HTTPConnection( url );
+
+        String strByteRange = "bytes=" + worker.getCurrentPos() + "-" + worker.getRangeEnd();
+        NVPair[] nvPairs = new NVPair[]
+        { new NVPair("Range", strByteRange) };
+        connection.setDefaultHeaders(nvPairs);
+
+        rsp = connection.Get(url.getFile(), url.getQuery());
+        ipStream = rsp.getInputStream();
+    }//end method
+
+    public void stop()
+    {
+        connection.stop();
+
+        connection = null;
+        ipStream = null;
+        rsp = null;
+        worker = null;
+    }//end method
+
+    public int read(byte[] buffer, int offset, int length) throws Exception
+    {
+        return ipStream.read(buffer, offset, length);
+    }//end method
+
+}//end class
